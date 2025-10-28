@@ -70,12 +70,22 @@ st.markdown("""
 # === CONTENT-SECURITY-POLICY (CSP) ===
 st.markdown("""
 <meta http-equiv="Content-Security-Policy" 
-      content="default-src 'self'; script-src 'self' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
 """, unsafe_allow_html=True)
 
-# === FULL CSS (TOC VISIBLE, CLEAN LOOK) ===
+# === FULL CSS + JAVASCRIPT FOR SCROLLING ===
 st.markdown("""
 <script src="https://cdn.tailwindcss.com"></script>
+<script>
+function scrollToSection(id) {
+    const el = document.getElementById(id);
+    if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.style.backgroundColor = '#fff3cd';
+        setTimeout(() => { el.style.backgroundColor = ''; }, 2000);
+    }
+}
+</script>
 <style>
 :root{ --bg:#fff; --text:#000; --muted:#777; --joval-red:#800020; --section-bg: rgba(0,0,0,0.02); }
 html, body, .stApp { background:var(--bg)!important; color:var(--text)!important; font-family: 'Helvetica', 'Arial', sans-serif !important; }
@@ -102,7 +112,7 @@ html, body, .stApp { background:var(--bg)!important; color:var(--text)!important
 .stButton button, .stDownloadButton button { background:#000 !important; color:#fff !important; border:1px solid rgba(0,0,0,0.12); font-weight:700; }
 .stSidebar .stButton > button { color: #fff !important; background: var(--joval-red) !important; font-size: 1.1rem; font-weight: bold; }
 .comments-title{color:var(--text); font-weight:700; margin-top:12px; margin-bottom:6px;}
-a { color: var(--joval-red); }
+a { color: var(--joval-red); cursor: pointer; }
 .toc a { display:block; padding:6px 4px; color:var(--text); text-decoration:none; }
 .toc a:hover { background: rgba(0,0,0,0.02); border-radius:4px; }
 .refresh-btn { background:#000 !important; color:#fff !important; border:1px solid rgba(0,0,0,0.12); font-weight:700; padding: 0.5rem 1rem; border-radius: 0.25rem; cursor:pointer; margin-left:10px; }
@@ -182,7 +192,7 @@ a { color: var(--joval-red); }
 .nist-incident-section { color: #d9534f !important; }
 .security-icon { font-size: 1.2rem; opacity: 0.7; margin-right: 0.5rem; }
 /* Search result styling */
-.search-result a { color: #800020; text-decoration: underline; }
+.search-result a { color: #800020; text-decoration: underline; cursor: pointer; }
 .search-result a:hover { color: #a00030; }
 </style>
 """, unsafe_allow_html=True)
@@ -566,8 +576,9 @@ def create_jira_ticket(summary: str, description: str):
     except Exception as e:
         st.error(f"Jira integration error: {e}")
 
-@st.cache_data(hash_funcs={Path: lambda p: str(p)}, show_spinner=False)
-def parse_playbook(path: str) -> List[Dict[str, Any]]:
+# === CACHED PARSING PER PLAYBOOK ===
+@st.cache_data(hash_funcs={Path: lambda p: str(p)})
+def parse_playbook_cached(path: str) -> List[Dict[str, Any]]:
     with open(path, "rb") as fh:
         result = mammoth.convert_to_html(fh)
         html = result.value
@@ -808,12 +819,13 @@ def generate_pdf_bytes(sections: List[Dict[str, Any]], playbook_name: str) -> by
         st.error(f"PDF generation failed: {str(e)}")
         return b""
 
-# === FIXED SEARCH: USES CORRECT LEVEL FROM PARSING ===
-@st.cache_data(ttl=1800)
+# === FAST, CACHED SEARCH ===
+@st.cache_data(ttl=600)
 def run_search_assistant(query: str, playbooks_list: List[str], top_k: int = 7):
     corpus = []
     for pb in playbooks_list:
-        secs = parse_playbook(os.path.join(PLAYBOOKS_DIR, pb))
+        path = os.path.join(PLAYBOOKS_DIR, pb)
+        secs = parse_playbook_cached(path)
         for s in secs:
             text_parts = [s.get("title", "")]
             for c in s.get("content", []):
@@ -841,8 +853,8 @@ def run_search_assistant(query: str, playbooks_list: List[str], top_k: int = 7):
             "playbook": corpus[i]["playbook"],
             "title": corpus[i]["title"],
             "level": corpus[i]["level"],
-            "score": float(sims[i])
-        } for i in idxs if sims[i] > 0
+            "anchor": stable_key(corpus[i]["playbook"], corpus[i]["title"], corpus[i]["level"])
+        } for i in idxs if sims[i] > 0.05
     ]
 
 def send_completion_notification(pct: int, playbook_name: str):
@@ -886,8 +898,8 @@ def main():
     """, unsafe_allow_html=True)
 
     st.sidebar.markdown('<div class="sidebar-header">Search Playbooks</div>', unsafe_allow_html=True)
-    query = st.sidebar.text_input("Search / Ask")
-    search_btn = st.sidebar.button("Search Assistant")
+    query = st.sidebar.text_input("Search / Ask", key="search_query")
+    search_btn = st.sidebar.button("Search Assistant", key="search_btn")
     st.sidebar.markdown("---")
     autosave = st.sidebar.checkbox("Auto-save progress", value=True)
     bulk_export = st.sidebar.checkbox("Bulk export")
@@ -911,9 +923,10 @@ def main():
     selected_playbook = st.selectbox("Select playbook", playbooks, index=0, key="select_playbook")
     st.markdown('<div class="instructional-text">In the event of a cyber incident select the required playbook and complete each required step in the NIST "Incident Handling Categories" section</div>', unsafe_allow_html=True)
 
+    # === LOAD SELECTED PLAYBOOK ===
     parsed_key = f"parsed::{selected_playbook}"
     if parsed_key not in st.session_state:
-        st.session_state[parsed_key] = parse_playbook(os.path.join(PLAYBOOKS_DIR, selected_playbook))
+        st.session_state[parsed_key] = parse_playbook_cached(os.path.join(PLAYBOOKS_DIR, selected_playbook))
     sections = st.session_state[parsed_key]
 
     if not sections:
@@ -926,7 +939,7 @@ def main():
     completed_map = st.session_state[f"completed::{selected_playbook}"]
     comments_map = st.session_state[f"comments::{selected_playbook}"]
 
-    # === FIXED: SEARCH RESULTS NOW USE CORRECT LEVEL FROM PARSING ===
+    # === SEARCH RESULTS WITH JAVASCRIPT SCROLL ===
     if search_btn and query:
         results = run_search_assistant(query, playbooks, 10)
         if results:
@@ -935,26 +948,32 @@ def main():
                 unsafe_allow_html=True
             )
             for r in results:
-                anchor = stable_key(r["playbook"], r["title"], r["level"])  # ← USES CORRECT LEVEL
+                clean_name = r["playbook"].replace(".docx", "").split(" v")[0]
+                onclick = f"scrollToSection('{r['anchor']}')"
                 st.sidebar.markdown(
                     f"<div class='search-result'>"
-                    f"- **[{r['playbook'].replace('.docx','')}]**<br>"
-                    f"  <a href='#{anchor}' style='color:#800020;text-decoration:underline;'>{r['title']}</a>"
+                    f"- **{clean_name}**<br>"
+                    f"  <a onclick=\"{onclick}\" style='color:#800020;text-decoration:underline;cursor:pointer;'>{r['title']}</a>"
                     f"</div>",
                     unsafe_allow_html=True
                 )
         else:
             st.sidebar.info("No results found.")
 
+    # === TOC WITH JAVASCRIPT SCROLL ===
     toc_items = []
     def walk_toc(secs):
         for s in secs:
-            toc_items.append({"title": s["title"], "anchor": stable_key(selected_playbook, s["title"], s["level"])})
+            anchor = stable_key(selected_playbook, s["title"], s["level"])
+            toc_items.append({"title": s["title"], "anchor": anchor})
             if s.get("subs"):
                 walk_toc(s["subs"])
     walk_toc(sections)
 
-    toc_html = "<div class='toc'><h4>Table of Contents</h4>" + "".join(f"<a href='#{t['anchor']}'>{t['title']}</a>" for t in toc_items) + "</div>"
+    toc_html = "<div class='toc'><h4>Table of Contents</h4>" + "".join(
+        f"<a onclick=\"scrollToSection('{t['anchor']}', '{selected_playbook}')\" style='cursor:pointer;'>{t['title']}</a>"
+        for t in toc_items
+    ) + "</div>"
     st.markdown(toc_html, unsafe_allow_html=True)
 
     st.markdown('<div class="content-wrap">', unsafe_allow_html=True)
