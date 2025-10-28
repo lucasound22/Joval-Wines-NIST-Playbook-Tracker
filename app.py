@@ -199,7 +199,6 @@ def load_users():
         except (json.JSONDecodeError, ValueError):
             pass
     
-    # Admin password from secrets only
     admin_pass = st.secrets.get("ADMIN_PASSWORD", "Joval2025")
     default_admin = {
         "admin@joval.com": {
@@ -809,6 +808,7 @@ def generate_pdf_bytes(sections: List[Dict[str, Any]], playbook_name: str) -> by
         st.error(f"PDF generation failed: {str(e)}")
         return b""
 
+# === FIXED SEARCH: USES CORRECT LEVEL FROM PARSING ===
 @st.cache_data(ttl=1800)
 def run_search_assistant(query: str, playbooks_list: List[str], top_k: int = 7):
     corpus = []
@@ -822,7 +822,12 @@ def run_search_assistant(query: str, playbooks_list: List[str], top_k: int = 7):
                 elif c.get("type") == "table":
                     for r in c.get("value", []):
                         text_parts.append(" ".join(r))
-            corpus.append({"playbook": pb, "title": s.get("title", ""), "text": "\n".join(text_parts)})
+            corpus.append({
+                "playbook": pb,
+                "title": s.get("title", ""),
+                "level": s.get("level", 2),
+                "text": "\n".join(text_parts)
+            })
     if not corpus or not SKLEARN_AVAILABLE:
         return []
     texts = [c["text"] for c in corpus]
@@ -831,7 +836,14 @@ def run_search_assistant(query: str, playbooks_list: List[str], top_k: int = 7):
     qv = vect.transform([query])
     sims = (mat @ qv.T).toarray().ravel()
     idxs = sims.argsort()[::-1][:top_k]
-    return [{"playbook": corpus[i]["playbook"], "title": corpus[i]["title"], "score": float(sims[i])} for i in idxs if sims[i] > 0]
+    return [
+        {
+            "playbook": corpus[i]["playbook"],
+            "title": corpus[i]["title"],
+            "level": corpus[i]["level"],
+            "score": float(sims[i])
+        } for i in idxs if sims[i] > 0
+    ]
 
 def send_completion_notification(pct: int, playbook_name: str):
     if pct >= 100:
@@ -914,7 +926,7 @@ def main():
     completed_map = st.session_state[f"completed::{selected_playbook}"]
     comments_map = st.session_state[f"comments::{selected_playbook}"]
 
-    # === ENHANCED SEARCH RESULTS (CLICKABLE, NO SCORE) ===
+    # === FIXED: SEARCH RESULTS NOW USE CORRECT LEVEL FROM PARSING ===
     if search_btn and query:
         results = run_search_assistant(query, playbooks, 10)
         if results:
@@ -923,7 +935,7 @@ def main():
                 unsafe_allow_html=True
             )
             for r in results:
-                anchor = stable_key(r["playbook"], r["title"], 2)
+                anchor = stable_key(r["playbook"], r["title"], r["level"])  # ← USES CORRECT LEVEL
                 st.sidebar.markdown(
                     f"<div class='search-result'>"
                     f"- **[{r['playbook'].replace('.docx','')}]**<br>"
