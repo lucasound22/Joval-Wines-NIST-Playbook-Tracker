@@ -1,3 +1,6 @@
+# --------------------------------------------------------------
+# app.py – Joval Wines NIST Playbook Tracker (FULL VERSION)
+# --------------------------------------------------------------
 import os
 import io
 import re
@@ -260,7 +263,7 @@ def authenticate():
         if st.button("Login"):
             if st.session_state.login_attempts >= 5:
                 if st.session_state.last_attempt and (now - st.session_state.last_attempt).seconds < 300:
-                    st.error("Too many attempts. Try again in 5 minutes.")
+                    st.error("Too many failed attempts. Try again in 5 minutes.")
                     st.stop()
                 else:
                     st.session_state.login_attempts = 0
@@ -455,7 +458,7 @@ def run_search_assistant(query: str, playbooks_list: List[str], top_k: int = 7):
     return [corpus[i] for i in idxs if sims[i] > 0.05]
 
 # ----------------------------------------------------------------------
-# Rendering helpers
+# Rendering helpers (FIXED container usage)
 # ----------------------------------------------------------------------
 def render_action_table(pb: str, sec_key: str, rows: List[List[str]],
                        completed: dict, comments: dict, autosave: bool, tbl_idx: int):
@@ -492,31 +495,36 @@ def render_section(sec: Dict, pb: str, completed: dict, comments: dict, autosave
     key = stable_key(pb, sec["title"], sec["level"])
     cls = "nist-incident-section" if sec["title"] == "NIST Incident Handling Categories" else ""
     st.markdown(f"<div class='section-title {cls}' id='{key}'>{sec['title']}</div>", unsafe_allow_html=True)
+
+    # FIXED: use a container inside the expander so all widgets are legal
     with st.expander("Expand section", expanded=False):
-        tbl_idx = 0
-        for it in sec.get("content", []):
-            if it["type"] == "text":
-                st.markdown(f"<div class='content-text'>{it['value'].replace(chr(10),'<br/>')}</div>", unsafe_allow_html=True)
-            elif it["type"] == "image":
-                try: st.image(it["value"])
-                except: pass
-            elif it["type"] == "table":
-                rows = it["value"]
-                if rows and len(rows[0]) >= 4 and any("ref" in h.lower() for h in rows[0]):
-                    render_action_table(pb, key, rows, completed, comments, autosave, tbl_idx)
-                    tbl_idx += 1
-                else:
-                    df = pd.DataFrame(rows[1:], columns=rows[0]) if len(rows) > 1 else pd.DataFrame(rows)
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-        for sub in sec.get("subs", []):
-            render_section(sub, pb, completed, comments, autosave)
-        # Section-level comment
-        sec_comm_key = f"{key}::sec_comment"
-        prev = comments.get(sec_comm_key, "")
-        new = st.text_area("", value=prev, key=f"sec_c_{key}", height=100, label_visibility="collapsed")
-        if new != prev:
-            comments[sec_comm_key] = new
-            if autosave: save_progress(pb, completed, comments)
+        container = st.container()
+        with container:
+            tbl_idx = 0
+            for it in sec.get("content", []):
+                if it["type"] == "text":
+                    st.markdown(f"<div class='content-text'>{it['value'].replace(chr(10),'<br/>')}</div>", unsafe_allow_html=True)
+                elif it["type"] == "image":
+                    try: st.image(it["value"])
+                    except: pass
+                elif it["type"] == "table":
+                    rows = it["value"]
+                    if rows and len(rows[0]) >= 4 and any("ref" in h.lower() for h in rows[0]):
+                        render_action_table(pb, key, rows, completed, comments, autosave, tbl_idx)
+                        tbl_idx += 1
+                    else:
+                        df = pd.DataFrame(rows[1:], columns=rows[0]) if len(rows) > 1 else pd.DataFrame(rows)
+                        st.dataframe(df, use_container_width=True, hide_index=True)
+            # sub-sections (recursive)
+            for sub in sec.get("subs", []):
+                render_section(sub, pb, completed, comments, autosave)
+            # section-level comment
+            sec_comm_key = f"{key}::sec_comment"
+            prev = comments.get(sec_comm_key, "")
+            new = st.text_area("", value=prev, key=f"sec_c_{key}", height=100, label_visibility="collapsed")
+            if new != prev:
+                comments[sec_comm_key] = new
+                if autosave: save_progress(pb, completed, comments)
 
 # ----------------------------------------------------------------------
 # Export helpers
@@ -639,7 +647,7 @@ def admin_dashboard(user):
 # ----------------------------------------------------------------------
 def main():
     user = authenticate()
-    st.sidebar.info(f"Logged in: **{user['name']}** ({user['email']}) – Role: {get_user_role(user['email'])}")
+    st.sidebar.info(f"Logged in: **{user['name']}** – Role: {get_user_role(user['email'])}")
 
     if st.session_state.get('admin_page', False):
         admin_dashboard(user)
@@ -715,8 +723,8 @@ def main():
     toc_items = []
     def build_toc(secs):
         for s in secs:
-            a = stable_key(selected, s["title"], s["level"])
-            toc_items.append({"title": s["title"], "anchor": a})
+            anchor = stable_key(selected, s["title"], s["level"])
+            toc_items.append({"title": s["title"], "anchor": anchor})
             if s.get("subs"): build_toc(s["subs"])
     build_toc(sections)
     toc_html = "<div class='toc'><h4>Contents</h4>" + "".join(
