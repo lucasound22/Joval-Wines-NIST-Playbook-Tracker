@@ -44,7 +44,7 @@ Path(USERS_FILE).touch(exist_ok=True)
 
 st.set_page_config(
     page_title="Joval Wines NIST Playbook Tracker",
-    page_icon="🍷",
+    page_icon="wine",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -65,8 +65,8 @@ html, body, .stApp { background:var(--bg)!important; color:var(--text)!important
 .logo-left{flex-shrink:0; height:80px; margin-right:auto;}
 .app-title{flex:1; text-align:center; font-family:'Helvetica', sans-serif; font-size:3rem; color:var(--text); font-weight:700; margin:0; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);}
 .nist-logo{flex-shrink:0; font-family:'Helvetica', sans-serif; font-size:2rem; color:var(--joval-red); letter-spacing:0.08rem; text-shadow:0 0 12px rgba(128,0,32,0.08); font-weight:700; margin-left:auto;}
-.toc{position:fixed; left:12px; top:84px; bottom:92px; width:260px; background:rgba(255,255,255,0.95); padding:10px; border-radius:8px; overflow:auto; border:1px solid rgba(0,0,0,0.03); z-index:900;}
-.content-wrap{margin-left:292px; margin-right:24px; padding-top:0px; padding-bottom:100px; margin-top: 0px;}
+.toc{display: none !important; /* Hidden until stable */ position:fixed; left:12px; top:84px; bottom:92px; width:260px; background:rgba(255,255,255,0.95); padding:10px; border-radius:8px; overflow:auto; border:1px solid rgba(0,0,0,0.03); z-index:900;}
+.content-wrap{margin-left:24px; margin-right:24px; padding-top:0px; padding-bottom:100px; margin-top: 0px;}
 .section-box{background:var(--section-bg); padding:12px; border-radius:8px; margin-bottom:12px; border:1px solid rgba(0,0,0,0.02);}
 .scaled-img{max-width:90%; height:auto; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.6); margin:12px 0; display:block;}
 .playbook-table{border-collapse:collapse; width:100%; margin-top:8px; margin-bottom:8px;}
@@ -123,8 +123,6 @@ a { color: var(--joval-red); }
 }
 [data-testid="stExpander"] label { color: var(--text) !important; font-size: 1.5rem !important; font-weight: bold !important; }
 [data-testid="stExpander"] [data-testid="stArrowToggle"] { color: var(--text) !important; }
-/* Tailwind responsive classes can be added inline */
-/* Black text for specific labels */
 .theme-label, .compliance-label { color: #000 !important; font-weight: bold; }
 .stSidebar label { color: #000 !important; }
 .light-theme .stSelectbox > label { color: #000 !important; }
@@ -144,18 +142,14 @@ a { color: var(--joval-red); }
 .light-theme .bottom-toolbar div { color: #000 !important; }
 .progress-wrap { position: relative; }
 .progress-fill { position: absolute; top: 0; left: 0; }
-/* Login page specific styling */
 .login-container { background: var(--bg); color: var(--text); padding: 2rem; text-align: center; max-width: 400px; margin: 0 auto; }
 .login-title { color: var(--text) !important; font-size: 1.5rem; font-weight: bold; margin-bottom: 1rem; }
 .login-subtitle { color: var(--joval-red) !important; font-size: 1.2rem; margin-bottom: 2rem; }
-/* Fix for help tooltips */
-.stMarkdown [title], .stButton [title], .stSelectbox [title] { visibility: visible !important; }
 .stHelp { color: var(--text) !important; background: rgba(255,255,255,0.8) !important; border: 1px solid var(--joval-red) !important; }
-/* Mobile optimizations */
 @media (max-width: 768px) {
   .stApp { max-width: 100%; }
   .content-wrap { margin-left: 0 !important; margin-right: 0 !important; padding: 0 10px; }
-  .toc { display: none !important; } /* Hide TOC on mobile */
+  .toc { display: none !important; }
   .sticky-header { flex-direction: column; padding: 10px; }
   .app-title { font-size: 2rem; margin: 10px 0; }
   .section-title { font-size: 1.4rem !important; }
@@ -166,13 +160,8 @@ a { color: var(--joval-red); }
   [data-testid="stExpander"] label { font-size: 1.2rem !important; }
   .instructional-text { font-size: 1.2rem !important; padding: 10px; }
 }
-/* Larger and bold selectbox label */
 .playbook-select-label { font-size: 2.5rem !important; font-weight: bold !important; color: var(--text) !important; }
-/* Larger and bold options in selectbox */
-.stSelectbox div[role="combobox"] option { font-size: 1.5rem !important; font-weight: bold !important; }
-/* Red section title */
 .nist-incident-section { color: #d9534f !important; }
-/* Subtle security icons */
 .security-icon { font-size: 1.2rem; opacity: 0.7; margin-right: 0.5rem; }
 </style>
 """, unsafe_allow_html=True)
@@ -441,27 +430,26 @@ def clean_for_pdf(text: str) -> str:
     replacements = {
         '\u2014': '-', '\u2013': '-', '\u2022': '*', '\u2026': '...',
         '\u201c': '"', '\u201d': '"', '\u2018': "'", '\u2019': "'",
-        '\u00A0': ' ', '\u2191': ' (up) '  # Replace upwards arrow with a string
+        '\u00A0': ' ', '\u2191': ' (up) '
     }
     for unicode_char, replacement in replacements.items():
         text = text.replace(unicode_char, replacement)
-    # Remove any remaining characters that cannot be encoded in latin-1
     text = ''.join(char for char in text if ord(char) < 256 or char in replacements)
     return text
 
 def calculate_badges(pct: int) -> List[str]:
     if pct >= 100:
-        return ["🏆 Gold Star"]
+        return ["Gold Star"]
     elif pct >= 80:
-        return ["🥈 Silver Shield"]
+        return ["Silver Shield"]
     elif pct >= 50:
-        return ["🥉 Bronze Medal"]
+        return ["Bronze Medal"]
     elif pct >= 25:
-        return ["📈 Progress Starter"]
+        return ["Progress Starter"]
     elif pct > 0:
-        return ["🚀 Just Started"]
+        return ["Just Started"]
     else:
-        return ["📖 Ready to Begin"]
+        return ["Ready to Begin"]
 
 def save_feedback(rating: int, comments: str):
     feedback_data = {"rating": rating, "comments": comments, "timestamp": datetime.now().isoformat()}
@@ -537,7 +525,7 @@ def export_to_csv(completed_map: Dict, comments_map: Dict, selected_playbook: st
 def create_jira_ticket(summary: str, description: str):
     try:
         import requests
-        jira_url = st.secrets["JIRA_URL"]  # e.g., "https://joval.atlassian.net/rest/api/3/issue"
+        jira_url = st.secrets["JIRA_URL"]
         email = st.secrets["JIRA_EMAIL"]
         token = st.secrets["JIRA_TOKEN"]
         project_key = st.secrets["JIRA_PROJECT_KEY"]
@@ -761,35 +749,47 @@ def render_section(section: Dict[str, Any], playbook_name: str, completed_map: d
     with st.expander("Expand section", expanded=False):
         render_section_content(section, playbook_name, completed_map, comments_map, autosave, sec_key)
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def generate_pdf_bytes(sections: List[Dict[str, Any]], playbook_name: str) -> bytes:
-    pdf = FPDF()
-    pdf.set_margins(15, 10, 15)
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(0, 10, txt=clean_for_pdf("Joval Wines - NIST Playbook Tracker"), ln=1, align='C')
-    pdf.set_font("Arial", size=10)
-    pdf.cell(0, 8, txt=clean_for_pdf(f"Playbook: {playbook_name}"), ln=1)
-    pdf.ln(4)
-    def add_section(pdf, section, indent=0):
-        pdf.set_font("Arial", "B", 8)
-        pdf.multi_cell(180, 6, clean_for_pdf("  " * indent + section["title"]), 0, 'L')
-        pdf.ln(2)
-        pdf.set_font("Arial", size=7)
-        for it in section.get("content", []):
-            if it["type"] == "text":
-                for line in it["value"].split("\n"):
-                    pdf.multi_cell(180, 5, clean_for_pdf(line.strip()), 0, 'L')
+    try:
+        pdf = FPDF()
+        pdf.set_margins(15, 10, 15)
+        pdf.add_page()
+        pdf.set_font("Arial", size=12)
+        pdf.cell(0, 10, txt=clean_for_pdf("Joval Wines - NIST Playbook Tracker"), ln=1, align='C')
+        pdf.set_font("Arial", size=10)
+        pdf.cell(0, 8, txt=clean_for_pdf(f"Playbook: {playbook_name}"), ln=1)
+        pdf.ln(4)
+        def add_section(pdf, section, indent=0):
+            pdf.set_font("Arial", "B", 8)
+            pdf.multi_cell(180, 6, clean_for_pdf("  " * indent + section["title"]), 0, 'L')
+            pdf.ln(2)
+            pdf.set_font("Arial", size=7)
+            for it in section.get("content", []):
+                if it["type"] == "text":
+                    for line in it["value"].split("\n"):
+                        pdf.multi_cell(180, 5, clean_for_pdf(line.strip()), 0, 'L')
+                        pdf.ln(1)
+                elif it["type"] == "table":
+                    pdf.multi_cell(180, 5, clean_for_pdf("[Table]"), 0, 'L')
                     pdf.ln(1)
-            elif it["type"] == "table":
-                pdf.multi_cell(180, 5, clean_for_pdf("[Table]"), 0, 'L')
-                pdf.ln(1)
-        for sub in section.get("subs", []):
-            add_section(pdf, sub, indent + 2)
-        pdf.ln(2)
-    for s in sections:
-        add_section(pdf, s)
-    return pdf.output(dest='S')
+            for sub in section.get("subs", []):
+                add_section(pdf, sub, indent + 2)
+            pdf.ln(2)
+        for s in sections:
+            add_section(pdf, s)
+        output = pdf.output(dest='S')
+        if isinstance(output, str):
+            with open(output, 'rb') as f:
+                output = f.read()
+        elif not isinstance(output, bytes):
+            output = bytes(output)
+        if not isinstance(output, bytes) or len(output) == 0:
+            raise ValueError("PDF generation returned empty/non-binary data")
+        return output
+    except Exception as e:
+        st.error(f"PDF generation failed: {str(e)}")
+        return b""
 
 @st.cache_data(ttl=1800)
 def run_search_assistant(query: str, playbooks_list: List[str], top_k: int = 7):
@@ -817,7 +817,7 @@ def run_search_assistant(query: str, playbooks_list: List[str], top_k: int = 7):
 
 def send_completion_notification(pct: int, playbook_name: str):
     if pct >= 100:
-        st.sidebar.success(f"🎉 Playbook '{playbook_name}' completed! Notification sent.")
+        st.sidebar.success(f"Playbook '{playbook_name}' completed! Notification sent.")
 
 def main():
     user = authenticate()
@@ -828,7 +828,7 @@ def main():
         return
 
     if get_user_role(user['email']) == "admin":
-        if st.sidebar.button("🔧 Admin Dashboard"):
+        if st.sidebar.button("Admin Dashboard"):
             st.session_state.admin_page = True
             st.rerun()
 
@@ -850,19 +850,19 @@ def main():
     st.markdown(f"""
     <div class='sticky-header'>
         {logo_html}
-        <div class='app-title'>Joval Wines NIST Playbook Tracker 🛡️</div>
-        <div class='nist-logo'>NIST 🔒</div>
+        <div class='app-title'>Joval Wines NIST Playbook Tracker</div>
+        <div class='nist-logo'>NIST</div>
     </div>
     """, unsafe_allow_html=True)
 
-    st.sidebar.markdown('<div class="sidebar-header">🔐 Search Playbooks</div>', unsafe_allow_html=True)
+    st.sidebar.markdown('<div class="sidebar-header">Search Playbooks</div>', unsafe_allow_html=True)
     query = st.sidebar.text_input("Search / Ask")
     search_btn = st.sidebar.button("Search Assistant")
     st.sidebar.markdown("---")
     autosave = st.sidebar.checkbox("Auto-save progress", value=True)
     bulk_export = st.sidebar.checkbox("Bulk export")
     st.sidebar.markdown("---")
-    st.sidebar.markdown('<div class="sidebar-subheader">NIST Resources 🛡️</div>', unsafe_allow_html=True)
+    st.sidebar.markdown('<div class="sidebar-subheader">NIST Resources</div>', unsafe_allow_html=True)
     resources = {
         "Cybersecurity Framework": "https://www.nist.gov/cyberframework",
         "Incident Response (SP 800-61 Rev2)": "https://csrc.nist.gov/publications/detail/sp/800-61/rev-2/final",
@@ -875,9 +875,9 @@ def main():
 
     st.sidebar.markdown("---")
     st.sidebar.markdown('<div class="sidebar-footer">© Joval Wines</div>', unsafe_allow_html=True)
-    st.sidebar.markdown('<div style="color: var(--text); font-weight: bold; font-size: 1.1rem;">Better Never Stops 🛡️</div>', unsafe_allow_html=True)
+    st.sidebar.markdown('<div style="color: var(--text); font-weight: bold; font-size: 1.1rem;">Better Never Stops</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="playbook-select-label">📁 Select playbook</div>', unsafe_allow_html=True)
+    st.markdown('<div class="playbook-select-label">Select playbook</div>', unsafe_allow_html=True)
     selected_playbook = st.selectbox("Select playbook", playbooks, index=0, key="select_playbook")
     st.markdown('<div class="instructional-text">In the event of a cyber incident select the required playbook and complete each required step in the NIST "Incident Handling Categories" section</div>', unsafe_allow_html=True)
 
@@ -887,8 +887,8 @@ def main():
     sections = st.session_state[parsed_key]
 
     if not sections:
-        st.warning("No sections parsed.")
-        return
+        st.error("No playbook sections loaded—check playbooks folder.")
+        st.stop()
 
     completed_map, comments_map = load_progress(selected_playbook)
     st.session_state[f"completed::{selected_playbook}"] = completed_map
@@ -930,7 +930,7 @@ def main():
     with col1:
         st.info(f"Progress: {pct}% - {', '.join(badges)}")
     with col2:
-        if st.button("🎮 Gamify!"):
+        if st.button("Gamify!"):
             st.session_state.gamify = not st.session_state.gamify
             if st.session_state.gamify:
                 st.session_state.gamify_count += 1
@@ -963,7 +963,10 @@ def main():
             st.download_button("Download Excel", excel_data, f"{os.path.splitext(selected_playbook)[0]}_progress.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     with c3:
         pdf_bytes = generate_pdf_bytes(sections, selected_playbook)
-        st.download_button("Export PDF", pdf_bytes, f"{os.path.splitext(selected_playbook)[0]}_export.pdf", "application/pdf")
+        if isinstance(pdf_bytes, bytes) and len(pdf_bytes) > 0:
+            st.download_button("Export PDF", pdf_bytes, f"{os.path.splitext(selected_playbook)[0]}_export.pdf", "application/pdf")
+        else:
+            st.warning("PDF export unavailable—generation failed. Check logs.")
 
     if autosave:
         save_progress(selected_playbook, completed_map, comments_map)
