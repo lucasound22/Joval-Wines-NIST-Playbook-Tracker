@@ -1,0 +1,27 @@
+{
+  "playbook": "Joval Wine Group - Ransomware Playbook v0.1.docx",
+  "timestamp": "2025-10-15T14:28:15.418411",
+  "completed": {
+    "sec_b41f0f5688b4676c95826739b67fdb60": true,
+    "sec_4fccd38816f57e08a7daa19d2f3b70ca": true,
+    "sec_c08fe09fa183495007e6ba015e629387": true
+  },
+  "comments": {
+    "sec_b41f0f5688b4676c95826739b67fdb60": "",
+    "sec_c08fe09fa183495007e6ba015e629387": "",
+    "sec_4fccd38816f57e08a7daa19d2f3b70ca": "",
+    "sec_ff4802a26e95699b25d039667677428d": "",
+    "sec_3f9b2adb917e00fdb4b2b7f195eea625": "",
+    "sec_16d35ef8f756aa8a5cd5b22fa3ac5368": "",
+    "sec_7dab8773a4cd124673b7d13be4217b14": "",
+    "sec_2ba0dc0e7878c79e500963306101911a": "",
+    "sec_270eea50876acbdf5a322f2a008ecde8": "",
+    "sec_c9b34704841507f43073349673818874": "",
+    "sec_bb64f3f0c60ccd50dac4248187a981c3": "",
+    "sec_9078c4e6d58b1032126754a2f7a69896": "",
+    "sec_81ef19643b905aa838565bf3495331e3": "",
+    "sec_a8d3c1a5b88db44bd09a4710918066e1": "",
+    "sec_52ded677cc396492659c4ec04da6d823": "",
+    "sec_ca40958bf732cec5d24e37fb664f5307": ""
+  }
+}

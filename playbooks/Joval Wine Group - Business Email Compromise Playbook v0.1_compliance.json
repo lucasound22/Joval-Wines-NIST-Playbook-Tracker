@@ -1,0 +1,40 @@
+{
+  "playbook": "Joval Wine Group - Business Email Compromise Playbook v0.1.docx",
+  "timestamp": "2025-10-16T10:18:37.147693",
+  "completed": {
+    "sec_a66fb23994039bc03d2ad6966f7d0f60": false,
+    "sec_60b5406944c9efc873447f7f5bc0243a": false,
+    "sec_36e95dc2890677f07446d4857f063e32": false,
+    "sec_8a758aeec80e6058a0d7d39f17a1bd3e": false,
+    "sec_5f9d67b618bb63ffe1a1770a61425ab7": false,
+    "sec_40daf44688ac7ca02781e5f888b72c12": false,
+    "sec_ddfcd0416fb20534f703c34dee0d33ab": false,
+    "sec_93d59ee88dce66d55ebf6e0b15b8b8b6": false
+  },
+  "comments": {
+    "sec_88c104ae07c4bbe801e8b8d1ae0ec90e": "",
+    "sec_7845c60452f6bf71ca18e9653790883c": "",
+    "sec_a785bc122fa58fe12f2db9b675e6cdd4": "",
+    "sec_6ca90f6447a5b3f86601d9c07250f7a2": "",
+    "sec_105bf6b80a6d9848f51505b37e990cc0": "",
+    "sec_856f9fb0f7ffa0bdeea175c6db921ccf": "",
+    "sec_8eba5fa65c30322ddbd629ab1fb6e72a": "",
+    "sec_7eac12c2c2ae9cece0b519c9201ab277": "",
+    "sec_d888014d7ad1f05ec2a2ed6c87037b1f": "",
+    "sec_b1f00754182e6701e4d00f4e284d07ce": "",
+    "sec_0e709db29f1148ff8a8b9fd8fb47cac1": "",
+    "sec_7f59428d49c4030088911eb70de7a431": "",
+    "sec_cf3ecd20aed0403f6433fa642f6ae1ab": "",
+    "sec_8d96ad1cde09463c2ad223a012c50322": "",
+    "sec_ae2c4f411f33d9fd00a9f51850aeb4e7": "",
+    "sec_397dad4273a3924bfe65f46c39438a75": "",
+    "sec_a66fb23994039bc03d2ad6966f7d0f60": "",
+    "sec_60b5406944c9efc873447f7f5bc0243a": "",
+    "sec_36e95dc2890677f07446d4857f063e32": "",
+    "sec_8a758aeec80e6058a0d7d39f17a1bd3e": "",
+    "sec_5f9d67b618bb63ffe1a1770a61425ab7": "",
+    "sec_40daf44688ac7ca02781e5f888b72c12": "",
+    "sec_ddfcd0416fb20534f703c34dee0d33ab": "",
+    "sec_93d59ee88dce66d55ebf6e0b15b8b8b6": ""
+  }
+}

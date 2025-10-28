@@ -1,0 +1,10 @@
+{
+  "admin@joval.com": {
+    "role": "admin",
+    "hash": "32df0438afa89aaa5af7bcb55e141d974258a9d1373021cf6d479c14a8e13efe"
+  },
+  "lmarino@joval.com.au": {
+    "role": "user",
+    "hash": "32df0438afa89aaa5af7bcb55e141d974258a9d1373021cf6d479c14a8e13efe"
+  }
+}

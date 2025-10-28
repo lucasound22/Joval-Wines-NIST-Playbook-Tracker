@@ -1,0 +1,12 @@
+{
+  "playbook": "Joval Wine Group - Elevation of Privilege Playbook v0.1.docx",
+  "timestamp": "2025-10-28T10:50:37.115069",
+  "version": "1.0",
+  "completed": {
+    "sec_b19d2466070bebbf37a5768f2f0767fd::tbl::1::row::0": true,
+    "sec_b19d2466070bebbf37a5768f2f0767fd::tbl::1::row::1": true,
+    "sec_b19d2466070bebbf37a5768f2f0767fd::tbl::1::row::2": true,
+    "sec_b19d2466070bebbf37a5768f2f0767fd::tbl::1::row::3": true
+  },
+  "comments": {}
+}

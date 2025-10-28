@@ -1,0 +1,40 @@
+{
+  "playbook": "Joval Wine Group - Elevation of Privilege Playbook v0.1.docx",
+  "timestamp": "2025-10-15T10:00:59.380294",
+  "completed": {
+    "sec_d754fd0879f344428882c1531a0e8a2a": false,
+    "sec_4938ab1164012f54669d9c1c17cfc964": false,
+    "sec_0e77f67beeebab0e2be3e99d1fae7599": false,
+    "sec_baea7869a4cfe833d63c4909b1a1649f": false,
+    "sec_77032e189123f2bf3731a6c9305a68db": false,
+    "sec_46289850bb44f5e638c9a77079d239e5": false,
+    "sec_f6897fd63e45295006ff75843228cf1d": false,
+    "sec_60bc2f82655e3c794f1c459cf71deaf1": false
+  },
+  "comments": {
+    "sec_05ecd8df1182f4c53c8dc43b7c3cbc09": "",
+    "sec_4dd95ae0bd1560618fd9f69441e7fc38": "",
+    "sec_b68defa3db6de081c434159de55ade24": "",
+    "sec_d4bec196133fd34c94cff62ec67f3848": "",
+    "sec_323e3178ab29b3fc171d0c41631f8575": "",
+    "sec_ce51557fd3e56b92b191fa17b10c7e67": "",
+    "sec_d754fd0879f344428882c1531a0e8a2a": "",
+    "sec_4938ab1164012f54669d9c1c17cfc964": "",
+    "sec_0e77f67beeebab0e2be3e99d1fae7599": "",
+    "sec_baea7869a4cfe833d63c4909b1a1649f": "",
+    "sec_77032e189123f2bf3731a6c9305a68db": "",
+    "sec_46289850bb44f5e638c9a77079d239e5": "",
+    "sec_f6897fd63e45295006ff75843228cf1d": "",
+    "sec_60bc2f82655e3c794f1c459cf71deaf1": "",
+    "sec_a2791f36ac5d534f1cb79faf89563352": "",
+    "sec_4ac23ab704c8ce4a922cddd37e854408": "",
+    "sec_b19d2466070bebbf37a5768f2f0767fd": "",
+    "sec_e615b1b0aedeeaa3369aebf13f7c7ed5": "",
+    "sec_f9debfdd6ac220ca0301c7cb85b4e023": "",
+    "sec_0d11f8df956312e7ad91fbc27d5331f3": "",
+    "sec_fc7e112f680810f4766023e283adaf1f": "",
+    "sec_b013cf98d4605321541aa0e1005b4d66": "",
+    "sec_f24a69f123a08b3ec3db41af563c99f9": "",
+    "sec_69b85542ee94e0f1959eb803cac29e90": ""
+  }
+}
