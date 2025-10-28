@@ -62,7 +62,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# === FULL CSS + JAVASCRIPT FOR SCROLLING, HIGHLIGHTING & EXPANDING ===
+# === FULL CSS + JAVASCRIPT (FIXED EXPAND & HIGHLIGHT) ===
 st.markdown("""
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -938,6 +938,7 @@ def main():
                         st.session_state.select_playbook = pb
                         st.session_state.pending_anchor = anc
                         st.session_state.pending_highlight = term
+                        st.rerun()  # Critical: forces JS to run on next render
                     return nav
 
                 st.sidebar.markdown(
@@ -950,11 +951,12 @@ def main():
                     unsafe_allow_html=True,
                 )
                 st.sidebar.button(
-                    f"→ {r['title']}",
+                    f"Go to {r['title']}",
                     key=f"nav_{anchor}",
                     on_click=make_nav(r["playbook"], anchor, query.strip()),
-                    help="Click to jump to section",
-                    use_container_width=True
+                    help=r["snippet"],
+                    use_container_width=True,
+                    type="primary"
                 )
         else:
             st.sidebar.info("No matches found.")
@@ -1085,7 +1087,12 @@ def main():
     with c3:
         pdf_bytes = generate_pdf_bytes(sections, selected_playbook)
         if pdf_bytes:
-            st.download_button("Export PDF", pdf_bytes, f"{os.path.splitext(selected_playbook)[0]}_export.pdf", "application/pdf")
+            st.download_button(
+                label="Export PDF",
+                data=pdf_bytes,
+                file_name=f"{os.path.splitext(selected_playbook)[0]}_export.pdf",
+                mime="application/pdf"
+            )
         else:
             st.warning("PDF export unavailable.")
 
