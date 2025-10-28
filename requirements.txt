@@ -1,7 +1,7 @@
-streamlit
-mammoth
-beautifulsoup4
-pandas
-fpdf2==1.7.2
-openpyxl
-scikit-learn
+streamlit==1.38.0
+mammoth==1.6.0
+beautifulsoup4==4.12.3
+pandas==2.2.2
+openpyxl==3.1.5
+fpdf2==2.7.8          # <-- pinned to a wheel that works on Python 3.13
+scikit-learn==1.5.1   # <-- stable wheel
