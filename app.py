@@ -63,16 +63,17 @@ st.markdown("""
 html,body,.stApp{background:var(--bg)!important;color:var(--text)!important;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;}
 .stApp > footer,.stApp [data-testid="stToolbar"],.stApp [data-testid="collapsedControl"],.stDeployButton{display:none!important;}
 
-/* Header */
+/* Header - Fixed Layout: Logo | Title | NIST */
 .sticky-header{
     position:sticky;top:0;z-index:9999;
     display:flex;align-items:center;justify-content:space-between;
-    padding:1rem 2rem;background:#fff;
+    padding:1.2rem 2rem;background:#fff;
     border-bottom:1px solid var(--border);box-shadow:0 2px 8px rgba(0,0,0,.05);
+    min-height:100px;
 }
-.logo-left{height:70px;}
-.app-title{font-size:2.2rem;font-weight:700;color:var(--text);margin:0;}
-.nist-logo{font-size:1.8rem;color:var(--red);font-weight:700;}
+.logo-left{height:140px;width:auto;}  /* Doubled size */
+.app-title{font-size:2.4rem;font-weight:700;color:var(--text);margin:0;text-align:center;flex:1;}
+.nist-logo{font-size:2.2rem;color:var(--red);font-weight:700;height:140px;display:flex;align-items:center;}  /* Doubled size */
 
 /* Sidebar */
 .css-1d391kg{padding-top:1rem;}
@@ -92,7 +93,7 @@ html,body,.stApp{background:var(--bg)!important;color:var(--text)!important;font
 /* Buttons */
 .stButton>button,.stDownloadButton>button{
     background:#000!important;color:#fff!important;
-    border-radius:8px;padding:.5rem 1rem;font-weight:600;
+    border-radius:8px;padding:.5rem 1rem;font-weight:600;width:100%;
 }
 .stButton>button:hover,.stDownloadButton>button:hover{opacity:.9;}
 
@@ -110,10 +111,10 @@ html,body,.stApp{background:var(--bg)!important;color:var(--text)!important;font
 
 /* Responsive */
 @media (max-width:768px){
-    .sticky-header{flex-direction:column;padding:1rem;}
+    .sticky-header{flex-direction:column;padding:1rem;min-height:auto;}
     .app-title{font-size:1.8rem;}
+    .logo-left,.nist-logo{height:100px;}
     .content-wrap{margin-left:0;padding:1rem;}
-    .toc{display:none;}
 }
 </style>
 """, unsafe_allow_html=True)
@@ -359,6 +360,13 @@ def save_progress(playbook_name: str, completed_map: dict, comments_map: dict) -
         json.dump(rec, fh, indent=2)
     return path
 
+def reset_playbook_progress(playbook_name: str):
+    """Clear all progress for the current playbook"""
+    path = progress_filepath(playbook_name)
+    if os.path.exists(path):
+        os.remove(path)
+    st.success(f"Progress reset for **{playbook_name}**")
+
 def safe_image_display(src: str) -> bool:
     if not src:
         return False
@@ -404,12 +412,12 @@ def get_logo():
     if "logo_b64" not in st.session_state:
         st.session_state.logo_b64 = None
     if st.session_state.logo_b64:
-        return f'<img src="data:image/png;base64,{st.session_state.logo_b64}" class="logo-left" alt="Custom Logo" style="display: block; margin: 0 auto; max-width: 200px;" />'
+        return f'<img src="data:image/png;base64,{st.session_state.logo_b64}" class="logo-left" alt="Custom Logo" />'
     default_logo_path = "logo.png"
     if os.path.exists(default_logo_path):
         with open(default_logo_path, "rb") as f:
             logo_bytes = f.read()
-            return f'<img src="data:image/png;base64,{base64.b64encode(logo_bytes).decode()}" class="logo-left" alt="Default Logo" style="display: block; margin: 0 auto; max-width: 200px;" />'
+            return f'<img src="data:image/png;base64,{base64.b64encode(logo_bytes).decode()}" class="logo-left" alt="Default Logo" />'
     return '<div class="logo-left"></div>'
 
 def theme_selector():
@@ -831,6 +839,11 @@ def main():
             if st.button("Confirm"):
                 create_jira_ticket(summary, desc)
     with c2:
+        # Reset Playbook Button
+        if st.button("**Reset Playbook**"):
+            reset_playbook_progress(selected_playbook)
+            st.rerun()
+
         csv_data = export_to_csv(completed_map, comments_map, selected_playbook)
         st.download_button("Download CSV", csv_data,
                            f"{os.path.splitext(selected_playbook)[0]}_progress.csv",
@@ -841,7 +854,7 @@ def main():
                                f"{os.path.splitext(selected_playbook)[0]}_progress.xlsx",
                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     with c3:
-        pass  # PDF removed
+        pass
 
     if autosave:
         save_progress(selected_playbook, completed_map, comments_map)
