@@ -5,6 +5,7 @@ import json
 import base64
 import hashlib
 import secrets
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any
@@ -219,9 +220,21 @@ a { color: var(--joval-red); cursor: pointer; }
 .playbook-select-label { font-size: 2.5rem !important; font-weight: bold !important; color: var(--text) !important; }
 .nist-incident-section { color: #d9534f !important; }
 .security-icon { font-size: 1.2rem; opacity: 0.7; margin-right: 0.5rem; }
-/* Search result styling */
-.search-result a { color: #800020; text-decoration: underline; cursor: pointer; }
-.search-result a:hover { color: #a00030; }
+/* Search result button */
+.search-nav-btn {
+    background: #800020 !important;
+    color: #fff !important;
+    border: none !important;
+    padding: 0.35rem 0.75rem !important;
+    border-radius: 0.25rem !important;
+    font-size: 0.85rem !important;
+    font-weight: 600 !important;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    margin-top: 4px;
+}
+.search-nav-btn:hover { background:#a00030 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -838,7 +851,7 @@ def generate_pdf_bytes(sections: List[Dict[str, Any]], playbook_name: str) -> by
         for s in sections:
             add_section(pdf, s)
 
-        return pdf.output(dest='S')  # Returns bytes directly
+        return pdf.output(dest='S')
     except Exception as e:
         st.error(f"PDF generation failed: {str(e)}")
         return b""
@@ -926,29 +939,28 @@ def main():
             st.sidebar.markdown("<h4 style='color:var(--joval-red);margin-top:12px;'>Results</h4>", unsafe_allow_html=True)
             for r in results:
                 clean_name = r["playbook"].replace(".docx", "").split(" v")[0]
-                anchor = r["anchor"]
+                anchor     = r["anchor"]
+                btn_id     = f"navbtn_{hash(anchor)}"
 
-                def make_nav(pb, anc, term):
-                    def nav():
-                        st.session_state.select_playbook = pb
-                        st.session_state.pending_anchor = anc
-                        st.session_state.pending_highlight = term
-                    return nav
+                # Hidden button triggers Python navigation
+                if st.sidebar.button("", key=btn_id, on_click=lambda pb=r["playbook"], anc=anchor, term=query.strip():
+                                     st.session_state.update(select_playbook=pb, pending_anchor=anc, pending_highlight=term)):
+                    pass
 
+                # Visible styled button triggers JS + Python
                 st.sidebar.markdown(
                     f"""
                     <div style="padding:6px 0; border-bottom:1px solid #eee;">
                         <strong>{clean_name}</strong><br>
-                        <a href="#" onclick="document.getElementById('nav_{hash(anchor)}').click(); return false;" style="color:#800020; text-decoration:underline; font-size:0.9rem;">
+                        <a class="search-nav-btn" href="#" 
+                           onclick="document.getElementById('{btn_id}').click(); return false;">
                             {r['title']}
                         </a><br>
                         <em style="color:#666; font-size:0.8rem;">{r['snippet']}</em>
                     </div>
-                    <div id="nav_{hash(anchor)}" style="display:none;"></div>
                     """,
-                    unsafe_allow_html=True
+                    unsafe_allow_html=True,
                 )
-                st.sidebar.button("", key=f"navbtn_{anchor}", on_click=make_nav(r["playbook"], anchor, query.strip()))
         else:
             st.sidebar.info("No matches found.")
     else:
@@ -1000,18 +1012,35 @@ def main():
 
     # === HANDLE PENDING NAVIGATION FROM SEARCH ===
     if "pending_anchor" in st.session_state:
-        anchor_id = st.session_state.pending_anchor
+        anchor_id      = st.session_state.pending_anchor
         highlight_term = st.session_state.get("pending_highlight", "")
-        
+
         js = f"""
-        setTimeout(() => {{
-            expandSection('{anchor_id}');
-            scrollToSection('{anchor_id}');
-            {f"highlightText('{anchor_id}', '{highlight_term}');" if highlight_term else ""}
-        }}, 300);
+        <script>
+        (function waitForSection() {{
+            const sec = document.getElementById('{anchor_id}');
+            if (!sec) {{ setTimeout(waitForSection, 100); return; }}
+
+            // Expand the Streamlit expander
+            const expander = sec.closest('[data-testid="stExpander"]') ||
+                             sec.parentElement.querySelector('[data-testid="stExpander"]');
+            if (expander) {{
+                const details = expander.querySelector('details');
+                if (details && !details.open) details.open = true;
+            }}
+
+            // Scroll
+            sec.scrollIntoView({{behavior:'smooth', block:'start'}});
+            sec.style.backgroundColor = '#fff3cd';
+            setTimeout(() => sec.style.backgroundColor = '', 2000);
+
+            // Highlight
+            {f"highlightText('{anchor_id}', `{highlight_term}`);" if highlight_term else ""}
+        }})();
+        </script>
         """
-        st.markdown(f"<script>{js}</script>", unsafe_allow_html=True)
-        
+        st.markdown(js, unsafe_allow_html=True)
+
         del st.session_state.pending_anchor
         if "pending_highlight" in st.session_state:
             del st.session_state.pending_highlight
@@ -1088,4 +1117,10 @@ def main():
     show_feedback()
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        logging.exception("Unhandled error in main")
+        with st.expander("Error Details (click to expand)", expanded=False):
+            st.code(traceback.format_exc(), language="text")
+        st.error("An unexpected error occurred. See details above.")
