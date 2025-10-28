@@ -36,7 +36,7 @@ USERS_FILE = "users.json"
 Path(PLAYBOOKS_DIR).mkdir(exist_ok=True)
 Path(USERS_FILE).touch(exist_ok=True)
 
-# === PAGE CONFIG & MODERN UI (jovalwines.com.au style) ===
+# === PAGE CONFIG & MODERN UI ===
 st.set_page_config(
     page_title="Joval Wines NIST Playbook Tracker",
     page_icon="wine",
@@ -63,7 +63,7 @@ st.markdown("""
 html,body,.stApp{background:var(--bg)!important;color:var(--text)!important;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;}
 .stApp > footer,.stApp [data-testid="stToolbar"],.stApp [data-testid="collapsedControl"],.stDeployButton{display:none!important;}
 
-/* Header - Fixed Layout: Logo | Title | NIST */
+/* Header - Logo | Title | NIST */
 .sticky-header{
     position:sticky;top:0;z-index:9999;
     display:flex;align-items:center;justify-content:space-between;
@@ -71,9 +71,9 @@ html,body,.stApp{background:var(--bg)!important;color:var(--text)!important;font
     border-bottom:1px solid var(--border);box-shadow:0 2px 8px rgba(0,0,0,.05);
     min-height:100px;
 }
-.logo-left{height:140px;width:auto;}  /* Doubled size */
+.logo-left{height:140px;width:auto;}
 .app-title{font-size:2.4rem;font-weight:700;color:var(--text);margin:0;text-align:center;flex:1;}
-.nist-logo{font-size:2.2rem;color:var(--red);font-weight:700;height:140px;display:flex;align-items:center;}  /* Doubled size */
+.nist-logo{font-size:2.2rem;color:var(--red);font-weight:700;height:140px;display:flex;align-items:center;}
 
 /* Sidebar */
 .css-1d391kg{padding-top:1rem;}
@@ -90,10 +90,13 @@ html,body,.stApp{background:var(--bg)!important;color:var(--text)!important;font
 .section-title{font-size:1.7rem;font-weight:700;margin-bottom:.75rem;color:var(--text);}
 .nist-incident-section{color:var(--red)!important;}
 
-/* Buttons */
+/* Buttons - Compact & Clean */
 .stButton>button,.stDownloadButton>button{
     background:#000!important;color:#fff!important;
-    border-radius:8px;padding:.5rem 1rem;font-weight:600;width:100%;
+    border-radius:8px;padding:0.5rem 1.2rem!important;
+    font-weight:600;font-size:0.95rem;
+    width:auto!important;min-width:140px;
+    text-align:center;margin:0.3rem auto;display:block;
 }
 .stButton>button:hover,.stDownloadButton>button:hover{opacity:.9;}
 
@@ -168,7 +171,7 @@ def reset_user_password(email, password):
     users[email]["hash"] = hash_pass
     save_users(users)
     logging.info(f"Password reset: {email}")
-    return True, "Password reset successfully."
+    return True, "Password reset successfully.", password
 
 def delete_user(email):
     users = load_users()
@@ -252,7 +255,8 @@ def admin_dashboard(user):
         generate_pass = st.checkbox("Generate Random Password", value=True)
         if generate_pass:
             password = secrets.token_urlsafe(16)
-            st.markdown(f'<p style="font-size:2rem;">Generated Password: <strong>{password}</strong></p> <p>(Share securely; shown only once)</p>', unsafe_allow_html=True)
+            st.code(password, language=None)
+            st.info("Copy this password now — it will not be shown again.")
         else:
             password = st.text_input("Set Password", type="password")
         if st.button("Create User"):
@@ -272,15 +276,16 @@ def admin_dashboard(user):
         generate_pass = st.checkbox("Generate Random Password", value=True, key="reset_gen")
         if generate_pass:
             password = secrets.token_urlsafe(16)
-            show_pass = f'<p style="font-size:2rem;">Generated Password: <strong>{password}</strong></p> <p>(Share securely; shown only once)</p>'
         else:
             password = st.text_input("Set New Password", type="password", key="reset_custom")
-            show_pass = "Password set."
         if st.button("Reset Password"):
             if email and password:
-                success, msg = reset_user_password(email, password)
+                success, msg, new_pass = reset_user_password(email, password)
                 if success:
-                    st.markdown(show_pass, unsafe_allow_html=True) if generate_pass else st.success(msg)
+                    st.success(msg)
+                    if generate_pass:
+                        st.code(new_pass, language=None)
+                        st.info("New password shown above — copy it now.")
                 else:
                     st.error(msg)
             else:
@@ -361,11 +366,18 @@ def save_progress(playbook_name: str, completed_map: dict, comments_map: dict) -
     return path
 
 def reset_playbook_progress(playbook_name: str):
-    """Clear all progress for the current playbook"""
+    """Fully reset playbook progress — file + session state"""
     path = progress_filepath(playbook_name)
     if os.path.exists(path):
         os.remove(path)
-    st.success(f"Progress reset for **{playbook_name}**")
+    
+    # Clear session state
+    for key in list(st.session_state.keys()):
+        if key.startswith(f"completed::{playbook_name}") or key.startswith(f"comments::{playbook_name}"):
+            del st.session_state[key]
+    
+    st.success(f"**{playbook_name}** has been fully reset.")
+    st.rerun()
 
 def safe_image_display(src: str) -> bool:
     if not src:
@@ -736,7 +748,7 @@ def main():
 
     st.sidebar.markdown("---")
     st.sidebar.markdown('<div style="font-weight:600;">© Joval Wines</div>', unsafe_allow_html=True)
-    st.sidebar.markdown('<div style="font-weight:600;">Better Never Stops</div>', unsafe_allow_html=True)
+    st.sidebar.markdown('<div;A style="font-weight:600;">Better Never Stops</div>', unsafe_allow_html=True)
 
     # === PLAYBOOK SELECT ===
     global playbooks
@@ -827,7 +839,7 @@ def main():
     if st.button("Refresh"):
         st.rerun()
 
-    # === ACTION BUTTONS ===
+    # === ACTION BUTTONS (Compact & Clean) ===
     c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("Save Progress"):
@@ -839,10 +851,8 @@ def main():
             if st.button("Confirm"):
                 create_jira_ticket(summary, desc)
     with c2:
-        # Reset Playbook Button
         if st.button("**Reset Playbook**"):
             reset_playbook_progress(selected_playbook)
-            st.rerun()
 
         csv_data = export_to_csv(completed_map, comments_map, selected_playbook)
         st.download_button("Download CSV", csv_data,
