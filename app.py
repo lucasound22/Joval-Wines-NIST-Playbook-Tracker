@@ -174,9 +174,6 @@ a { color: var(--joval-red); }
 </style>
 """, unsafe_allow_html=True)
 
-# === REST OF THE CODE (UNCHANGED) ===
-# ... [All functions below remain exactly as in the previous working version] ...
-
 def load_users():
     if os.path.exists(USERS_FILE):
         try:
@@ -907,12 +904,25 @@ def main():
     completed_map = st.session_state[f"completed::{selected_playbook}"]
     comments_map = st.session_state[f"comments::{selected_playbook}"]
 
+    # === ENHANCED SEARCH RESULTS ===
     if search_btn and query:
         results = run_search_assistant(query, playbooks, 10)
         if results:
-            st.sidebar.markdown("**Search results**")
+            st.sidebar.markdown(
+                "<h3 style='color:var(--joval-red);font-weight:bold;margin-top:20px;'>"
+                "Search results"
+                "</h3>",
+                unsafe_allow_html=True
+            )
             for r in results:
-                st.sidebar.markdown(f"- **{r['playbook']}** — {r['title']} (score: {r['score']:.3f})")
+                anchor = stable_key(r["playbook"], r["title"], 2)
+                link = f"#{anchor}"
+                st.sidebar.markdown(
+                    f"- **[{r['playbook'].replace('.docx','')}]**<br>"
+                    f"  <a href='{link}' style='color:#800020;text-decoration:underline;'>"
+                    f"  {r['title']}</a>",
+                    unsafe_allow_html=True
+                )
         else:
             st.sidebar.info("No results found.")
 
