@@ -521,7 +521,7 @@ def theme_selector():
         """, unsafe_allow_html=True)
     return theme
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def export_to_excel(completed_map: Dict, comments_map: Dict, selected_playbook: str, bulk_export: bool = False) -> bytes:
     if not OPENPYXL_AVAILABLE:
         return b""
@@ -939,7 +939,7 @@ def main():
     completed_map = st.session_state[f"completed::{selected_playbook}"]
     comments_map = st.session_state[f"comments::{selected_playbook}"]
 
-    # === SEARCH RESULTS WITH JAVASCRIPT SCROLL ===
+    # === SEARCH RESULTS WITH JAVASCRIPT SCROLL (FIXED) ===
     if search_btn and query:
         results = run_search_assistant(query, playbooks, 10)
         if results:
@@ -949,11 +949,34 @@ def main():
             )
             for r in results:
                 clean_name = r["playbook"].replace(".docx", "").split(" v")[0]
-                onclick = f"scrollToSection('{r['anchor']}')"
+                qs_key = f"search_{hashlib.md5(r['anchor'].encode()).hexdigest()[:8]}"
+                link_html = f"""
+                <script>
+                function goTo_{qs_key}() {{
+                    const targetPb = "{r['playbook']}";
+                    const currentPb = "{selected_playbook}";
+                    if (targetPb !== currentPb) {{
+                        window.parent.document
+                            .querySelector('[data-testid="stAppViewContainer"]')
+                            .contentWindow.__setItem__("select_playbook", targetPb);
+                        const newUrl = new URL(window.location);
+                        newUrl.searchParams.set('anchor', '{r['anchor']}');
+                        history.replaceState(null, '', newUrl);
+                        window.location.search = "?rerun=1";
+                    }} else {{
+                        window.location.hash = "#{r['anchor']}";
+                        scrollToSection("{r['anchor']}");
+                    }}
+                }}
+                </script>
+                <a onclick="goTo_{qs_key}()" style="color:#800020;text-decoration:underline;cursor:pointer;">
+                    {r['title']}
+                </a>
+                """
                 st.sidebar.markdown(
                     f"<div class='search-result'>"
                     f"- **{clean_name}**<br>"
-                    f"  <a onclick=\"{onclick}\" style='color:#800020;text-decoration:underline;cursor:pointer;'>{r['title']}</a>"
+                    f"  {link_html}"
                     f"</div>",
                     unsafe_allow_html=True
                 )
@@ -971,10 +994,20 @@ def main():
     walk_toc(sections)
 
     toc_html = "<div class='toc'><h4>Table of Contents</h4>" + "".join(
-        f"<a onclick=\"scrollToSection('{t['anchor']}', '{selected_playbook}')\" style='cursor:pointer;'>{t['title']}</a>"
+        f"<a onclick=\"scrollToSection('{t['anchor']}')\" style='cursor:pointer;'>{t['title']}</a>"
         for t in toc_items
     ) + "</div>"
     st.markdown(toc_html, unsafe_allow_html=True)
+
+    # === AUTO-SCROLL ON LOAD IF ANCHOR IN URL ===
+    qs = st.experimental_get_query_params()
+    if "anchor" in qs:
+        anchor_id = qs["anchor"][0]
+        st.markdown(
+            f"<script>window.onload = function() {{ scrollToSection('{anchor_id}'); }};</script>",
+            unsafe_allow_html=True,
+        )
+        st.experimental_set_query_params()  # clear it
 
     st.markdown('<div class="content-wrap">', unsafe_allow_html=True)
     for sec in sections:
