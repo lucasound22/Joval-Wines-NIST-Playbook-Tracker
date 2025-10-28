@@ -5,7 +5,6 @@ import json
 import base64
 import hashlib
 import secrets
-import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any
@@ -103,10 +102,14 @@ function highlightText(id, term) {
     });
 }
 function expandSection(id) {
-    const section = document.getElementById(id);
-    if (!section) return;
-    const expander = section.closest('[data-testid="stExpander"]') || 
-                     section.parentElement.querySelector('[data-testid="stExpander"]');
+    const target = document.getElementById(id);
+    if (!target) return;
+    let expander = target.closest('[data-testid="stExpander"]');
+    if (!expander) {
+        let p = target.parentElement;
+        while (p && p.getAttribute('data-testid') !== 'stExpander') p = p.parentElement;
+        expander = p;
+    }
     if (expander) {
         const details = expander.querySelector('details');
         if (details && !details.open) {
@@ -176,7 +179,7 @@ a { color: var(--joval-red); cursor: pointer; }
   transition: all 0.2s ease !important;
 }
 [data-testid="stExpander"] > div:first-child:hover {
-  background:#e0e0e0 !important;
+  background:#e0e0f0 !important;
 }
 [data-testid="stExpander"] label { color: var(--text) !important; font-size: 1.5rem !important; font-weight: bold !important; }
 [data-testid="stExpander"] [data-testid="stArrowToggle"] { color: var(--text) !important; }
@@ -220,21 +223,10 @@ a { color: var(--joval-red); cursor: pointer; }
 .playbook-select-label { font-size: 2.5rem !important; font-weight: bold !important; color: var(--text) !important; }
 .nist-incident-section { color: #d9534f !important; }
 .security-icon { font-size: 1.2rem; opacity: 0.7; margin-right: 0.5rem; }
-/* Search result button */
-.search-nav-btn {
-    background: #800020 !important;
-    color: #fff !important;
-    border: none !important;
-    padding: 0.35rem 0.75rem !important;
-    border-radius: 0.25rem !important;
-    font-size: 0.85rem !important;
-    font-weight: 600 !important;
-    cursor: pointer;
-    text-decoration: none;
-    display: inline-block;
-    margin-top: 4px;
-}
-.search-nav-btn:hover { background:#a00030 !important; }
+/* Search result styling */
+.search-result-btn { background: #800020 !important; color: white !important; font-size: 0.9rem; padding: 6px 12px; border-radius: 6px; text-align: left; width: 100%; margin: 4px 0; }
+.search-result-btn:hover { background: #a00030 !important; }
+.search-result-snippet { font-size: 0.8rem; color: #555; margin-top: 2px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -851,7 +843,7 @@ def generate_pdf_bytes(sections: List[Dict[str, Any]], playbook_name: str) -> by
         for s in sections:
             add_section(pdf, s)
 
-        return pdf.output(dest='S')
+        return pdf.output(dest='S')  # Returns bytes directly
     except Exception as e:
         st.error(f"PDF generation failed: {str(e)}")
         return b""
@@ -939,27 +931,30 @@ def main():
             st.sidebar.markdown("<h4 style='color:var(--joval-red);margin-top:12px;'>Results</h4>", unsafe_allow_html=True)
             for r in results:
                 clean_name = r["playbook"].replace(".docx", "").split(" v")[0]
-                anchor     = r["anchor"]
-                btn_id     = f"navbtn_{hash(anchor)}"
+                anchor = r["anchor"]
 
-                # Hidden button triggers Python navigation
-                if st.sidebar.button("", key=btn_id, on_click=lambda pb=r["playbook"], anc=anchor, term=query.strip():
-                                     st.session_state.update(select_playbook=pb, pending_anchor=anc, pending_highlight=term)):
-                    pass
+                def make_nav(pb, anc, term):
+                    def nav():
+                        st.session_state.select_playbook = pb
+                        st.session_state.pending_anchor = anc
+                        st.session_state.pending_highlight = term
+                    return nav
 
-                # Visible styled button triggers JS + Python
                 st.sidebar.markdown(
                     f"""
-                    <div style="padding:6px 0; border-bottom:1px solid #eee;">
+                    <div style="margin:6px 0;">
                         <strong>{clean_name}</strong><br>
-                        <a class="search-nav-btn" href="#" 
-                           onclick="document.getElementById('{btn_id}').click(); return false;">
-                            {r['title']}
-                        </a><br>
-                        <em style="color:#666; font-size:0.8rem;">{r['snippet']}</em>
+                        <em style="font-size:0.85rem;color:#555;">{r['snippet']}</em>
                     </div>
                     """,
                     unsafe_allow_html=True,
+                )
+                st.sidebar.button(
+                    f"→ {r['title']}",
+                    key=f"nav_{anchor}",
+                    on_click=make_nav(r["playbook"], anchor, query.strip()),
+                    help="Click to jump to section",
+                    use_container_width=True
                 )
         else:
             st.sidebar.info("No matches found.")
@@ -1012,35 +1007,18 @@ def main():
 
     # === HANDLE PENDING NAVIGATION FROM SEARCH ===
     if "pending_anchor" in st.session_state:
-        anchor_id      = st.session_state.pending_anchor
+        anchor_id = st.session_state.pending_anchor
         highlight_term = st.session_state.get("pending_highlight", "")
-
+        
         js = f"""
-        <script>
-        (function waitForSection() {{
-            const sec = document.getElementById('{anchor_id}');
-            if (!sec) {{ setTimeout(waitForSection, 100); return; }}
-
-            // Expand the Streamlit expander
-            const expander = sec.closest('[data-testid="stExpander"]') ||
-                             sec.parentElement.querySelector('[data-testid="stExpander"]');
-            if (expander) {{
-                const details = expander.querySelector('details');
-                if (details && !details.open) details.open = true;
-            }}
-
-            // Scroll
-            sec.scrollIntoView({{behavior:'smooth', block:'start'}});
-            sec.style.backgroundColor = '#fff3cd';
-            setTimeout(() => sec.style.backgroundColor = '', 2000);
-
-            // Highlight
-            {f"highlightText('{anchor_id}', `{highlight_term}`);" if highlight_term else ""}
-        }})();
-        </script>
+        setTimeout(() => {{
+            expandSection('{anchor_id}');
+            scrollToSection('{anchor_id}');
+            {f"highlightText('{anchor_id}', '{highlight_term}');" if highlight_term else ""}
+        }}, 500);
         """
-        st.markdown(js, unsafe_allow_html=True)
-
+        st.markdown(f"<script>{js}</script>", unsafe_allow_html=True)
+        
         del st.session_state.pending_anchor
         if "pending_highlight" in st.session_state:
             del st.session_state.pending_highlight
@@ -1117,10 +1095,4 @@ def main():
     show_feedback()
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        logging.exception("Unhandled error in main")
-        with st.expander("Error Details (click to expand)", expanded=False):
-            st.code(traceback.format_exc(), language="text")
-        st.error("An unexpected error occurred. See details above.")
+    main()
