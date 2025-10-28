@@ -55,15 +55,25 @@ st.set_page_config(
     initial_sidebar_state=sidebar_state
 )
 
-# === HIDE STREAMLIT DEFAULTS ===
+# === HIDE ALL STREAMLIT BRANDING ===
 st.markdown("""
 <style>
-.stDeployButton {visibility: hidden;}
-[data-testid="collapsedControl"] {display: none !important;}
+/* Remove footer, toolbar, share button, deploy button */
+.stApp > footer {display: none !important;}
+.stApp [data-testid="stToolbar"] {display: none !important;}
+.stApp [data-testid="collapsedControl"] {display: none !important;}
+.stDeployButton {display: none !important;}
+.stApp [data-testid="stDecoration"] {display: none !important;}
 </style>
 """, unsafe_allow_html=True)
 
-# === FULL CSS (TOC VISIBLE) ===
+# === CONTENT-SECURITY-POLICY (CSP) ===
+st.markdown("""
+<meta http-equiv="Content-Security-Policy" 
+      content="default-src 'self'; script-src 'self' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+""", unsafe_allow_html=True)
+
+# === FULL CSS (TOC VISIBLE, CLEAN LOOK) ===
 st.markdown("""
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -171,9 +181,13 @@ a { color: var(--joval-red); }
 .playbook-select-label { font-size: 2.5rem !important; font-weight: bold !important; color: var(--text) !important; }
 .nist-incident-section { color: #d9534f !important; }
 .security-icon { font-size: 1.2rem; opacity: 0.7; margin-right: 0.5rem; }
+/* Search result styling */
+.search-result a { color: #800020; text-decoration: underline; }
+.search-result a:hover { color: #a00030; }
 </style>
 """, unsafe_allow_html=True)
 
+# === USER MANAGEMENT ===
 def load_users():
     if os.path.exists(USERS_FILE):
         try:
@@ -185,12 +199,8 @@ def load_users():
         except (json.JSONDecodeError, ValueError):
             pass
     
-    admin_pass = "Joval2025"
-    try:
-        admin_pass = st.secrets.get("ADMIN_PASSWORD", admin_pass)
-    except Exception:
-        pass
-    
+    # Admin password from secrets only
+    admin_pass = st.secrets.get("ADMIN_PASSWORD", "Joval2025")
     default_admin = {
         "admin@joval.com": {
             "role": "admin",
@@ -904,23 +914,21 @@ def main():
     completed_map = st.session_state[f"completed::{selected_playbook}"]
     comments_map = st.session_state[f"comments::{selected_playbook}"]
 
-    # === ENHANCED SEARCH RESULTS ===
+    # === ENHANCED SEARCH RESULTS (CLICKABLE, NO SCORE) ===
     if search_btn and query:
         results = run_search_assistant(query, playbooks, 10)
         if results:
             st.sidebar.markdown(
-                "<h3 style='color:var(--joval-red);font-weight:bold;margin-top:20px;'>"
-                "Search results"
-                "</h3>",
+                "<h3 style='color:var(--joval-red);font-weight:bold;margin-top:20px;'>Search results</h3>",
                 unsafe_allow_html=True
             )
             for r in results:
                 anchor = stable_key(r["playbook"], r["title"], 2)
-                link = f"#{anchor}"
                 st.sidebar.markdown(
+                    f"<div class='search-result'>"
                     f"- **[{r['playbook'].replace('.docx','')}]**<br>"
-                    f"  <a href='{link}' style='color:#800020;text-decoration:underline;'>"
-                    f"  {r['title']}</a>",
+                    f"  <a href='#{anchor}' style='color:#800020;text-decoration:underline;'>{r['title']}</a>"
+                    f"</div>",
                     unsafe_allow_html=True
                 )
         else:
