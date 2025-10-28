@@ -244,7 +244,7 @@ def load_users():
             pass
 
     admin_email = "admin@joval.com"
-    admin_hash = st.secretsantar("ADMIN_PASSWORD_HASH")
+    admin_hash = st.secrets.get("ADMIN_PASSWORD_HASH")
     if not admin_hash:
         st.error("ADMIN_PASSWORD_HASH not set in secrets.toml")
         st.stop()
@@ -934,7 +934,7 @@ def main():
             for idx, r in enumerate(results):
                 clean_name = r["playbook"].replace(".docx", "").split(" v")[0]
                 anchor = r["anchor"]
-                btn_key = f"nav_{idx}_{anchor}"
+                btn_key = f"nav_{r['playbook']}_{idx}_{anchor}"  # UNIQUE KEY
 
                 if st.sidebar.button(
                     f"Go to {r['title']}",
@@ -973,19 +973,19 @@ def main():
     st.markdown('<div class="playbook-select-label">Select playbook</div>', unsafe_allow_html=True)
     selected_playbook = st.selectbox(
         "Select playbook",
-        playbooks,
-        index=playbooks.index(st.session_state.select_playbook) if "select_playbook" in st.session_state and st.session_state.select_playbook in playbooks else 0,
+        options=[""] + playbooks,  # <-- empty first
+        index=0,
         key="select_playbook"
     )
 
-    # === NEW: HIDE EVERYTHING UNTIL PLAYBOOK IS SELECTED ===
+    # === HIDE EVERYTHING UNTIL PLAYBOOK IS SELECTED ===
     if not selected_playbook:
         st.markdown("""
         <div class="no-playbook-message">
             Please select a playbook from the dropdown above to begin.
         </div>
         """, unsafe_allow_html=True)
-        st.stop()  # Stop rendering anything below
+        st.stop()
 
     # === CONTINUE ONLY IF PLAYBOOK IS SELECTED ===
     st.markdown('<div class="instructional-text">In the event of a cyber incident select the required playbook and complete each required step in the NIST "Incident Handling Categories" section</div>', unsafe_allow_html=True)
