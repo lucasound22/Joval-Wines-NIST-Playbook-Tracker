@@ -227,6 +227,8 @@ a { color: var(--joval-red); cursor: pointer; }
 .search-result-btn { background: #800020 !important; color: white !important; font-size: 0.9rem; padding: 6px 12px; border-radius: 6px; text-align: left; width: 100%; margin: 4px 0; }
 .search-result-btn:hover { background: #a00030 !important; }
 .search-result-snippet { font-size: 0.8rem; color: #555; margin-top: 2px; }
+/* Hide until playbook selected */
+.no-playbook-message { text-align: center; font-size: 1.3rem; color: #800020; margin: 60px 0; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -242,7 +244,7 @@ def load_users():
             pass
 
     admin_email = "admin@joval.com"
-    admin_hash = st.secrets.get("ADMIN_PASSWORD_HASH")
+    admin_hash = st.secretsantar("ADMIN_PASSWORD_HASH")
     if not admin_hash:
         st.error("ADMIN_PASSWORD_HASH not set in secrets.toml")
         st.stop()
@@ -893,7 +895,7 @@ def main():
         return
 
     if get_user_role(user['email']) == "admin":
-        if st.sidebar **button**("Admin Dashboard"):
+        if st.sidebar.button("Admin Dashboard"):
             st.session_state.admin_page = True
             st.rerun()
 
@@ -975,6 +977,17 @@ def main():
         index=playbooks.index(st.session_state.select_playbook) if "select_playbook" in st.session_state and st.session_state.select_playbook in playbooks else 0,
         key="select_playbook"
     )
+
+    # === NEW: HIDE EVERYTHING UNTIL PLAYBOOK IS SELECTED ===
+    if not selected_playbook:
+        st.markdown("""
+        <div class="no-playbook-message">
+            Please select a playbook from the dropdown above to begin.
+        </div>
+        """, unsafe_allow_html=True)
+        st.stop()  # Stop rendering anything below
+
+    # === CONTINUE ONLY IF PLAYBOOK IS SELECTED ===
     st.markdown('<div class="instructional-text">In the event of a cyber incident select the required playbook and complete each required step in the NIST "Incident Handling Categories" section</div>', unsafe_allow_html=True)
 
     # === LOAD PLAYBOOK ===
