@@ -933,13 +933,11 @@ def main():
                 clean_name = r["playbook"].replace(".docx", "").split(" v")[0]
                 anchor = r["anchor"]
 
-                def make_nav(pb, anc, term):
-                    def nav():
-                        st.session_state.select_playbook = pb
-                        st.session_state.pending_anchor = anc
-                        st.session_state.pending_highlight = term
-                        st.rerun()  # Critical: forces JS to run on next render
-                    return nav
+                # Store navigation intent in session state
+                def set_nav(pb, anc, term):
+                    st.session_state.select_playbook = pb
+                    st.session_state.pending_anchor = anc
+                    st.session_state.pending_highlight = term
 
                 st.sidebar.markdown(
                     f"""
@@ -953,7 +951,8 @@ def main():
                 st.sidebar.button(
                     f"Go to {r['title']}",
                     key=f"nav_{anchor}",
-                    on_click=make_nav(r["playbook"], anchor, query.strip()),
+                    on_click=set_nav,
+                    args=(r["playbook"], anchor, query.strip()),
                     help=r["snippet"],
                     use_container_width=True,
                     type="primary"
@@ -962,6 +961,10 @@ def main():
             st.sidebar.info("No matches found.")
     else:
         st.sidebar.markdown("<em style='color:#777;'>Enter a term to search across all playbooks.</em>", unsafe_allow_html=True)
+
+    # === RERUN AFTER NAVIGATION ===
+    if "pending_anchor" in st.session_state:
+        st.rerun()
 
     st.sidebar.markdown("---")
     autosave = st.sidebar.checkbox("Auto-save progress", value=True)
