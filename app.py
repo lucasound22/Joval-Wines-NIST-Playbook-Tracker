@@ -73,7 +73,7 @@ st.markdown("""
       content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
 """, unsafe_allow_html=True)
 
-# === FULL CSS + JAVASCRIPT FOR SCROLLING ===
+# === FULL CSS + JAVASCRIPT FOR SCROLLING & HIGHLIGHTING ===
 st.markdown("""
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -84,6 +84,33 @@ function scrollToSection(id) {
         el.style.backgroundColor = '#fff3cd';
         setTimeout(() => { el.style.backgroundColor = ''; }, 2000);
     }
+}
+function highlightText(id, term) {
+    const el = document.getElementById(id);
+    if (!el || !term) return;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+    const nodes = [];
+    let node;
+    while (node = walker.nextNode()) nodes.push(node);
+    const regex = new RegExp('(' + term.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + ')', 'gi');
+    nodes.forEach(n => {
+        if (regex.test(n.nodeValue)) {
+            const parts = n.nodeValue.split(regex);
+            const fragment = document.createDocumentFragment();
+            parts.forEach((part, i) => {
+                if (i % 2 === 1) {
+                    const span = document.createElement('span');
+                    span.style.backgroundColor = '#fff3cd';
+                    span.style.fontWeight = 'bold';
+                    span.textContent = part;
+                    fragment.appendChild(span);
+                } else {
+                    fragment.appendChild(document.createTextNode(part));
+                }
+            });
+            n.parentNode.replaceChild(fragment, n);
+        }
+    });
 }
 </script>
 <style>
@@ -822,7 +849,6 @@ def generate_pdf_bytes(sections: List[Dict[str, Any]], playbook_name: str) -> by
 # === GLOBAL SEARCH (ALL PLAYBOOKS) ===
 @st.cache_data(ttl=600)
 def run_search_assistant(query: str, playbooks_list: List[str], top_k: int = 7):
-    """Return list of dicts with playbook, title, level, anchor."""
     corpus = []
     for pb in playbooks_list:
         path = os.path.join(PLAYBOOKS_DIR, pb)
@@ -940,7 +966,7 @@ def main():
     completed_map = st.session_state[f"completed::{selected_playbook}"]
     comments_map = st.session_state[f"comments::{selected_playbook}"]
 
-    # === SEARCH RESULTS (ALL PLAYBOOKS, NO NEW TAB) ===
+    # === SEARCH RESULTS (ALL PLAYBOOKS, NO NEW TAB, HIGHLIGHT TEXT) ===
     if search_btn and query:
         results = run_search_assistant(query, playbooks, 10)
         if results:
@@ -950,27 +976,24 @@ def main():
             )
             for r in results:
                 clean_name = r["playbook"].replace(".docx", "").split(" v")[0]
-                # unique JS function name
                 func_id = f"go_{hashlib.md5(r['anchor'].encode()).hexdigest()[:8]}"
-                link_html = f"""
+                link_js = f"""
                 <script>
                 function {func_id}() {{
                     const targetPb = "{r['playbook']}";
-                    const curPb = "{selected_playbook}";
+                    const curPb   = "{selected_playbook}";
+                    const anchor  = "{r['anchor']}";
+                    const term    = "{query}";
                     if (targetPb !== curPb) {{
-                        // switch playbook
                         window.parent.document
                             .querySelector('[data-testid="stAppViewContainer"]')
                             .contentWindow.__setItem__("select_playbook", targetPb);
-                        // keep anchor after rerun
-                        const u = new URL(window.location);
-                        u.searchParams.set('anchor', '{r['anchor']}');
-                        history.replaceState(null, '', u);
-                        window.location.search = "?rerun=1";
-                    }} else {{
-                        window.location.hash = "#{r['anchor']}";
-                        scrollToSection("{r['anchor']}");
                     }}
+                    const u = new URL(window.location);
+                    u.searchParams.set('anchor', anchor);
+                    u.searchParams.set('highlight', term);
+                    history.replaceState(null, '', u);
+                    window.location.search = "?rerun=1";
                 }}
                 </script>
                 <a onclick="{func_id}()" style="color:#800020;text-decoration:underline;cursor:pointer;">
@@ -980,14 +1003,14 @@ def main():
                 st.sidebar.markdown(
                     f"<div class='search-result'>"
                     f"- **{clean_name}**<br>"
-                    f"  {link_html}"
+                    f"  {link_js}"
                     f"</div>",
                     unsafe_allow_html=True
                 )
         else:
             st.sidebar.info("No results found.")
 
-    # === TOC (same as before) ===
+    # === TOC ===
     toc_items = []
     def walk_toc(secs):
         for s in secs:
@@ -1003,16 +1026,20 @@ def main():
     ) + "</div>"
     st.markdown(toc_html, unsafe_allow_html=True)
 
-    # === AUTO-SCROLL IF ?anchor=… IS IN URL (after playbook switch) ===
+    # === AUTO-SCROLL + HIGHLIGHT ON LOAD ===
     qs = st.experimental_get_query_params()
-    if "anchor" in qs:
-        anchor_id = qs["anchor"][0]
+    anchor_id = qs.get("anchor", [None])[0]
+    highlight_term = qs.get("highlight", [None])[0]
+
+    if anchor_id:
+        js_call = f"scrollToSection('{anchor_id}');"
+        if highlight_term:
+            js_call += f" highlightText('{anchor_id}', '{highlight_term}');"
         st.markdown(
-            f"<script>window.onload = function() {{ scrollToSection('{anchor_id}'); }};</script>",
+            f"<script>window.onload = function() {{ {js_call} }};</script>",
             unsafe_allow_html=True,
         )
-        # clean URL
-        st.experimental_set_query_params()
+        st.experimental_set_query_params()  # clean URL
 
     st.markdown('<div class="content-wrap">', unsafe_allow_html=True)
     for sec in sections:
