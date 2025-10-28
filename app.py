@@ -42,13 +42,20 @@ USERS_FILE = "users.json"
 Path(PLAYBOOKS_DIR).mkdir(exist_ok=True)
 Path(USERS_FILE).touch(exist_ok=True)
 
+# === DYNAMIC SIDEBAR STATE ===
+if 'authenticated' in st.session_state and st.session_state.authenticated:
+    sidebar_state = "expanded"
+else:
+    sidebar_state = "collapsed"
+
 st.set_page_config(
     page_title="Joval Wines NIST Playbook Tracker",
     page_icon="wine",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state=sidebar_state
 )
 
+# === HIDE STREAMLIT DEFAULTS ===
 st.markdown("""
 <style>
 .stDeployButton {visibility: hidden;}
@@ -56,6 +63,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# === FULL CSS (TOC VISIBLE) ===
 st.markdown("""
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -65,8 +73,8 @@ html, body, .stApp { background:var(--bg)!important; color:var(--text)!important
 .logo-left{flex-shrink:0; height:80px; margin-right:auto;}
 .app-title{flex:1; text-align:center; font-family:'Helvetica', sans-serif; font-size:3rem; color:var(--text); font-weight:700; margin:0; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);}
 .nist-logo{flex-shrink:0; font-family:'Helvetica', sans-serif; font-size:2rem; color:var(--joval-red); letter-spacing:0.08rem; text-shadow:0 0 12px rgba(128,0,32,0.08); font-weight:700; margin-left:auto;}
-.toc{display: none !important; /* Hidden until stable */ position:fixed; left:12px; top:84px; bottom:92px; width:260px; background:rgba(255,255,255,0.95); padding:10px; border-radius:8px; overflow:auto; border:1px solid rgba(0,0,0,0.03); z-index:900;}
-.content-wrap{margin-left:24px; margin-right:24px; padding-top:0px; padding-bottom:100px; margin-top: 0px;}
+.toc{ position:fixed; left:12px; top:84px; bottom:92px; width:260px; background:rgba(255,255,255,0.95); padding:10px; border-radius:8px; overflow:auto; border:1px solid rgba(0,0,0,0.03); z-index:900;}
+.content-wrap{margin-left:284px; margin-right:24px; padding-top:0px; padding-bottom:100px; margin-top: 0px;}
 .section-box{background:var(--section-bg); padding:12px; border-radius:8px; margin-bottom:12px; border:1px solid rgba(0,0,0,0.02);}
 .scaled-img{max-width:90%; height:auto; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.6); margin:12px 0; display:block;}
 .playbook-table{border-collapse:collapse; width:100%; margin-top:8px; margin-bottom:8px;}
@@ -165,6 +173,9 @@ a { color: var(--joval-red); }
 .security-icon { font-size: 1.2rem; opacity: 0.7; margin-right: 0.5rem; }
 </style>
 """, unsafe_allow_html=True)
+
+# === REST OF THE CODE (UNCHANGED) ===
+# ... [All functions below remain exactly as in the previous working version] ...
 
 def load_users():
     if os.path.exists(USERS_FILE):
