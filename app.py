@@ -62,7 +62,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# === FULL CSS + JAVASCRIPT (FIXED EXPAND & HIGHLIGHT) ===
+# === FULL CSS + JAVASCRIPT (ROBUST EXPAND & HIGHLIGHT) ===
 st.markdown("""
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -810,7 +810,7 @@ def render_section(section: Dict[str, Any], playbook_name: str, completed_map: d
     with st.expander("Expand section", expanded=False):
         render_section_content(section, playbook_name, completed_map, comments_map, autosave, sec_key)
 
-# === PDF GENERATION – FIXED ===
+# === PDF GENERATION – FIXED WITH VALIDATION ===
 @st.cache_data(ttl=300)
 def generate_pdf_bytes(sections: List[Dict[str, Any]], playbook_name: str) -> bytes:
     try:
@@ -843,7 +843,8 @@ def generate_pdf_bytes(sections: List[Dict[str, Any]], playbook_name: str) -> by
         for s in sections:
             add_section(pdf, s)
 
-        return pdf.output(dest='S')  # Returns bytes directly
+        pdf_bytes = pdf.output(dest='S').encode('latin-1')  # Ensure bytes
+        return pdf_bytes if isinstance(pdf_bytes, bytes) else b""
     except Exception as e:
         st.error(f"PDF generation failed: {str(e)}")
         return b""
@@ -929,15 +930,19 @@ def main():
         results = simple_search(query.strip(), playbooks, 12)
         if results:
             st.sidebar.markdown("<h4 style='color:var(--joval-red);margin-top:12px;'>Results</h4>", unsafe_allow_html=True)
-            for r in results:
+            for idx, r in enumerate(results):
                 clean_name = r["playbook"].replace(".docx", "").split(" v")[0]
                 anchor = r["anchor"]
+                btn_key = f"nav_{idx}_{anchor}"
 
-                # Store navigation intent in session state
-                def set_nav(pb, anc, term):
-                    st.session_state.select_playbook = pb
-                    st.session_state.pending_anchor = anc
-                    st.session_state.pending_highlight = term
+                # Use session state to trigger navigation
+                def make_nav(pb, anc, term, key):
+                    def nav():
+                        st.session_state.select_playbook = pb
+                        st.session_state.pending_anchor = anc
+                        st.session_state.pending_highlight = term
+                        st.session_state.nav_trigger = key
+                    return nav
 
                 st.sidebar.markdown(
                     f"""
@@ -950,20 +955,18 @@ def main():
                 )
                 st.sidebar.button(
                     f"Go to {r['title']}",
-                    key=f"nav_{anchor}",
-                    on_click=set_nav,
-                    args=(r["playbook"], anchor, query.strip()),
+                    key=btn_key,
+                    on_click=make_nav(r["playbook"], anchor, query.strip(), btn_key),
                     help=r["snippet"],
-                    use_container_width=True,
-                    type="primary"
+                    use_container_width=True
                 )
         else:
             st.sidebar.info("No matches found.")
     else:
         st.sidebar.markdown("<em style='color:#777;'>Enter a term to search across all playbooks.</em>", unsafe_allow_html=True)
 
-    # === RERUN AFTER NAVIGATION ===
-    if "pending_anchor" in st.session_state:
+    # === TRIGGER RERUN ON NAVIGATION ===
+    if st.session_state.get("nav_trigger"):
         st.rerun()
 
     st.sidebar.markdown("---")
@@ -1020,13 +1023,16 @@ def main():
             expandSection('{anchor_id}');
             scrollToSection('{anchor_id}');
             {f"highlightText('{anchor_id}', '{highlight_term}');" if highlight_term else ""}
-        }}, 500);
+        }}, 800);
         """
         st.markdown(f"<script>{js}</script>", unsafe_allow_html=True)
         
+        # Clean up
         del st.session_state.pending_anchor
         if "pending_highlight" in st.session_state:
             del st.session_state.pending_highlight
+        if "nav_trigger" in st.session_state:
+            del st.session_state.nav_trigger
 
     # === TOC ===
     toc_items = []
@@ -1089,7 +1095,7 @@ def main():
             st.download_button("Download Excel", excel_data, f"{os.path.splitext(selected_playbook)[0]}_progress.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     with c3:
         pdf_bytes = generate_pdf_bytes(sections, selected_playbook)
-        if pdf_bytes:
+        if pdf_bytes and len(pdf_bytes) > 100:  # Basic validation
             st.download_button(
                 label="Export PDF",
                 data=pdf_bytes,
