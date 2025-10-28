@@ -21,14 +21,9 @@ try:
 except ImportError:
     OPENPYXL_AVAILABLE = False
 
-try:
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    SKLEARN_AVAILABLE = True
-except Exception:
-    SKLEARN_AVAILABLE = False
-
 import logging
 
+# === CONFIGURATION ===
 ref_pattern = re.compile(r'^\d+(\.\d+)*\b')
 
 logging.basicConfig(
@@ -55,7 +50,7 @@ st.set_page_config(
     initial_sidebar_state=sidebar_state
 )
 
-# === HIDE ALL STREAMLIT BRANDING ===
+# === HIDE STREAMLIT BRANDING ===
 st.markdown("""
 <style>
 /* Remove footer, toolbar, share button, deploy button */
@@ -65,12 +60,6 @@ st.markdown("""
 .stDeployButton {display: none !important;}
 .stApp [data-testid="stDecoration"] {display: none !important;}
 </style>
-""", unsafe_allow_html=True)
-
-# === CONTENT-SECURITY-POLICY (CSP) ===
-st.markdown("""
-<meta http-equiv="Content-Security-Policy" 
-      content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
 """, unsafe_allow_html=True)
 
 # === FULL CSS + JAVASCRIPT FOR SCROLLING & HIGHLIGHTING ===
@@ -224,25 +213,25 @@ a { color: var(--joval-red); cursor: pointer; }
 </style>
 """, unsafe_allow_html=True)
 
-# === USER MANAGEMENT ===
+# === USER MANAGEMENT (SECURE) ===
 def load_users():
     if os.path.exists(USERS_FILE):
         try:
             with open(USERS_FILE, "r") as f:
                 content = f.read().strip()
                 if content:
-                    loaded = json.loads(content)
-                    return {k.lower(): v for k, v in loaded.items()}
+                    return {k.lower(): v for k, v in json.loads(content).items()}
         except (json.JSONDecodeError, ValueError):
             pass
+
+    # Default admin: hash stored in st.secrets
+    admin_email = "admin@joval.com"
+    admin_hash = st.secrets.get("ADMIN_PASSWORD_HASH")
+    if not admin_hash:
+        st.error("ADMIN_PASSWORD_HASH not set in secrets.toml")
+        st.stop()
     
-    admin_pass = st.secrets.get("ADMIN_PASSWORD", "Joval2025")
-    default_admin = {
-        "admin@joval.com": {
-            "role": "admin",
-            "hash": hashlib.sha256(admin_pass.encode()).hexdigest()
-        }
-    }
+    default_admin = {admin_email: {"role": "admin", "hash": admin_hash}}
     save_users(default_admin)
     return default_admin
 
@@ -274,7 +263,7 @@ def reset_user_password(email, password):
     users[email]["hash"] = hash_pass
     save_users(users)
     logging.info(f"Password reset: {email}")
-    return True, password
+    return True, "Password reset successfully."
 
 def delete_user(email):
     users = load_users()
@@ -335,13 +324,13 @@ def authenticate():
         st.stop()
 
     if st.sidebar.button("Logout"):
-        st.session_state.clear()
-        st.session_state.authenticated = False
-        st.session_state.user = None
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
         st.rerun()
 
     return st.session_state.user
 
+# === ADMIN DASHBOARD ===
 def admin_dashboard(user):
     if get_user_role(user["email"]) != "admin":
         st.error("Access denied. Admin only.")
@@ -384,11 +373,11 @@ def admin_dashboard(user):
             show_pass = "Password set."
         if st.button("Reset Password"):
             if email and password:
-                success, new_pass = reset_user_password(email, password)
+                success, msg = reset_user_password(email, password)
                 if success:
-                    st.markdown(show_pass, unsafe_allow_html=True) if generate_pass else st.success("Password reset successfully.")
+                    st.markdown(show_pass, unsafe_allow_html=True) if generate_pass else st.success(msg)
                 else:
-                    st.error(new_pass)
+                    st.error(msg)
             else:
                 st.error("Enter email and password.")
 
@@ -431,6 +420,7 @@ def admin_dashboard(user):
         st.session_state.admin_page = False
         st.rerun()
 
+# === UTILITIES ===
 def stable_key(playbook_name: str, title: str, level: int) -> str:
     base = f"{playbook_name}||{level}||{title}"
     return "sec_" + hashlib.md5(base.encode("utf-8")).hexdigest()
@@ -603,7 +593,7 @@ def create_jira_ticket(summary: str, description: str):
     except Exception as e:
         st.error(f"Jira integration error: {e}")
 
-# === CACHED PARSING PER PLAYBOOK ===
+# === CACHED PARSING ===
 @st.cache_data(hash_funcs={Path: lambda p: str(p)})
 def parse_playbook_cached(path: str) -> List[Dict[str, Any]]:
     with open(path, "rb") as fh:
@@ -833,61 +823,47 @@ def generate_pdf_bytes(sections: List[Dict[str, Any]], playbook_name: str) -> by
             pdf.ln(2)
         for s in sections:
             add_section(pdf, s)
-        output = pdf.output(dest='S')
-        if isinstance(output, str):
-            with open(output, 'rb') as f:
-                output = f.read()
-        elif not isinstance(output, bytes):
-            output = bytes(output)
-        if not isinstance(output, bytes) or len(output) == 0:
-            raise ValueError("PDF generation returned empty/non-binary data")
-        return output
+        return pdf.output(dest='S').encode('latin-1')
     except Exception as e:
         st.error(f"PDF generation failed: {str(e)}")
         return b""
 
-# === GLOBAL SEARCH (ALL PLAYBOOKS) ===
+# === FULL-TEXT SEARCH (WORKS ACROSS ALL PLAYBOOKS) ===
 @st.cache_data(ttl=600)
-def run_search_assistant(query: str, playbooks_list: List[str], top_k: int = 7):
-    corpus = []
+def simple_search(query: str, playbooks_list: List[str], top_k: int = 12):
+    results = []
+    query_lower = query.lower()
+
     for pb in playbooks_list:
         path = os.path.join(PLAYBOOKS_DIR, pb)
         secs = parse_playbook_cached(path)
+
         for s in secs:
-            text_parts = [s.get("title", "")]
+            parts = [s.get("title", "")]
             for c in s.get("content", []):
                 if c.get("type") == "text":
-                    text_parts.append(c.get("value", ""))
+                    parts.append(c.get("value", ""))
                 elif c.get("type") == "table":
-                    for r in c.get("value", []):
-                        text_parts.append(" ".join(r))
-            corpus.append({
-                "playbook": pb,
-                "title": s.get("title", ""),
-                "level": s.get("level", 2),
-                "text": "\n".join(text_parts)
-            })
-    if not corpus or not SKLEARN_AVAILABLE:
-        return []
-    texts = [c["text"] for c in corpus]
-    vect = TfidfVectorizer(stop_words='english', max_features=20000)
-    mat = vect.fit_transform(texts)
-    qv = vect.transform([query])
-    sims = (mat @ qv.T).toarray().ravel()
-    idxs = sims.argsort()[::-1][:top_k]
-    return [
-        {
-            "playbook": corpus[i]["playbook"],
-            "title": corpus[i]["title"],
-            "level": corpus[i]["level"],
-            "anchor": stable_key(corpus[i]["playbook"], corpus[i]["title"], corpus[i]["level"])
-        } for i in idxs if sims[i] > 0.05
-    ]
+                    for row in c.get("value", []):
+                        parts.append(" ".join(row))
+            full_text = "\n".join(parts).lower()
 
-def send_completion_notification(pct: int, playbook_name: str):
-    if pct >= 100:
-        st.sidebar.success(f"Playbook '{playbook_name}' completed! Notification sent.")
+            if query_lower in full_text:
+                pos = full_text.find(query_lower)
+                start = max(0, pos - 40)
+                snippet = "..." + full_text[start:start + 120].replace("\n", " ") + "..."
+                results.append({
+                    "playbook": pb,
+                    "title": s.get("title", ""),
+                    "level": s.get("level", 2),
+                    "anchor": stable_key(pb, s.get("title", ""), s.get("level", 2)),
+                    "snippet": snippet
+                })
 
+    results.sort(key=lambda x: (len(x["title"]), x["snippet"].find(query_lower)))
+    return results[:top_k]
+
+# === MAIN APP ===
 def main():
     user = authenticate()
     st.sidebar.info(f"Logged in as: {user['name']} ({user['email']}) - Role: {get_user_role(user['email'])}")
@@ -924,9 +900,40 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
+    # === SEARCH ===
     st.sidebar.markdown('<div class="sidebar-header">Search Playbooks</div>', unsafe_allow_html=True)
-    query = st.sidebar.text_input("Search / Ask", key="search_query")
-    search_btn = st.sidebar.button("Search Assistant", key="search_btn")
+    query = st.sidebar.text_input("Search", key="search_query", placeholder="type keyword…")
+    search_btn = st.sidebar.button("Search", key="search_btn")
+
+    if search_btn and query.strip():
+        results = simple_search(query.strip(), playbooks, 12)
+        if results:
+            st.sidebar.markdown("<h4 style='color:var(--joval-red);margin-top:12px;'>Results</h4>", unsafe_allow_html=True)
+            for r in results:
+                clean_name = r["playbook"].replace(".docx", "").split(" v")[0]
+                fid = f"nav_{hashlib.md5(r['anchor'].encode()).hexdigest()[:8]}"
+                js = f"""
+                <script>
+                function {fid}() {{
+                    localStorage.setItem("select_playbook", "{r['playbook']}");
+                    const u = new URL(window.location);
+                    u.searchParams.set('anchor', '{r["anchor"]}');
+                    u.searchParams.set('highlight', '{query.strip()}');
+                    window.location.href = u.toString();
+                }}
+                </script>
+                <a onclick="{fid}()" class="search-result" style="display:block;padding:4px 0;cursor:pointer;">
+                    <strong>{clean_name}</strong><br>
+                    <small>{r["title"]}</small><br>
+                    <em style="color:#555;font-size:0.85rem;">{r["snippet"]}</em>
+                </a>
+                """
+                st.sidebar.markdown(js, unsafe_allow_html=True)
+        else:
+            st.sidebar.info("No matches found.")
+    else:
+        st.sidebar.markdown("<em style='color:#777;'>Enter a term to search across all playbooks.</em>", unsafe_allow_html=True)
+
     st.sidebar.markdown("---")
     autosave = st.sidebar.checkbox("Auto-save progress", value=True)
     bulk_export = st.sidebar.checkbox("Bulk export")
@@ -950,7 +957,7 @@ def main():
     selected_playbook = st.selectbox("Select playbook", playbooks, index=0, key="select_playbook")
     st.markdown('<div class="instructional-text">In the event of a cyber incident select the required playbook and complete each required step in the NIST "Incident Handling Categories" section</div>', unsafe_allow_html=True)
 
-    # === LOAD SELECTED PLAYBOOK ===
+    # === LOAD PLAYBOOK ===
     parsed_key = f"parsed::{selected_playbook}"
     if parsed_key not in st.session_state:
         st.session_state[parsed_key] = parse_playbook_cached(os.path.join(PLAYBOOKS_DIR, selected_playbook))
@@ -965,50 +972,6 @@ def main():
     st.session_state[f"comments::{selected_playbook}"] = comments_map
     completed_map = st.session_state[f"completed::{selected_playbook}"]
     comments_map = st.session_state[f"comments::{selected_playbook}"]
-
-    # === SEARCH RESULTS (ALL PLAYBOOKS, NO NEW TAB, HIGHLIGHT TEXT) ===
-    if search_btn and query:
-        results = run_search_assistant(query, playbooks, 10)
-        if results:
-            st.sidebar.markdown(
-                "<h3 style='color:var(--joval-red);font-weight:bold;margin-top:20px;'>Search results</h3>",
-                unsafe_allow_html=True
-            )
-            for r in results:
-                clean_name = r["playbook"].replace(".docx", "").split(" v")[0]
-                func_id = f"go_{hashlib.md5(r['anchor'].encode()).hexdigest()[:8]}"
-                link_js = f"""
-                <script>
-                function {func_id}() {{
-                    const targetPb = "{r['playbook']}";
-                    const curPb   = "{selected_playbook}";
-                    const anchor  = "{r['anchor']}";
-                    const term    = "{query}";
-                    if (targetPb !== curPb) {{
-                        window.parent.document
-                            .querySelector('[data-testid="stAppViewContainer"]')
-                            .contentWindow.__setItem__("select_playbook", targetPb);
-                    }}
-                    const u = new URL(window.location);
-                    u.searchParams.set('anchor', anchor);
-                    u.searchParams.set('highlight', term);
-                    history.replaceState(null, '', u);
-                    window.location.search = "?rerun=1";
-                }}
-                </script>
-                <a onclick="{func_id}()" style="color:#800020;text-decoration:underline;cursor:pointer;">
-                    {r['title']}
-                </a>
-                """
-                st.sidebar.markdown(
-                    f"<div class='search-result'>"
-                    f"- **{clean_name}**<br>"
-                    f"  {link_js}"
-                    f"</div>",
-                    unsafe_allow_html=True
-                )
-        else:
-            st.sidebar.info("No results found.")
 
     # === TOC ===
     toc_items = []
@@ -1026,7 +989,7 @@ def main():
     ) + "</div>"
     st.markdown(toc_html, unsafe_allow_html=True)
 
-    # === AUTO-SCROLL + HIGHLIGHT ON LOAD ===
+    # === AUTO-SCROLL + HIGHLIGHT ===
     qs = st.experimental_get_query_params()
     anchor_id = qs.get("anchor", [None])[0]
     highlight_term = qs.get("highlight", [None])[0]
@@ -1039,7 +1002,7 @@ def main():
             f"<script>window.onload = function() {{ {js_call} }};</script>",
             unsafe_allow_html=True,
         )
-        st.experimental_set_query_params()  # clean URL
+        st.experimental_set_query_params()
 
     st.markdown('<div class="content-wrap">', unsafe_allow_html=True)
     for sec in sections:
@@ -1064,8 +1027,6 @@ def main():
                 else:
                     st.snow()
 
-    send_completion_notification(pct, selected_playbook)
-
     st.progress(pct / 100)
     if st.button("Refresh"):
         st.rerun()
@@ -1088,10 +1049,10 @@ def main():
             st.download_button("Download Excel", excel_data, f"{os.path.splitext(selected_playbook)[0]}_progress.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     with c3:
         pdf_bytes = generate_pdf_bytes(sections, selected_playbook)
-        if isinstance(pdf_bytes, bytes) and len(pdf_bytes) > 0:
+        if pdf_bytes:
             st.download_button("Export PDF", pdf_bytes, f"{os.path.splitext(selected_playbook)[0]}_export.pdf", "application/pdf")
         else:
-            st.warning("PDF export unavailable—generation failed. Check logs.")
+            st.warning("PDF export unavailable.")
 
     if autosave:
         save_progress(selected_playbook, completed_map, comments_map)
