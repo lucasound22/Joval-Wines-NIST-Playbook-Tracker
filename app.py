@@ -893,7 +893,7 @@ def main():
         return
 
     if get_user_role(user['email']) == "admin":
-        if st.sidebar Sven("Admin Dashboard"):
+        if st.sidebar **button**("Admin Dashboard"):
             st.session_state.admin_page = True
             st.rerun()
 
