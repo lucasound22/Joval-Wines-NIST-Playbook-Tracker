@@ -23,9 +23,7 @@ except ImportError:
 
 import logging
 
-# -------------------------------------------------
-# CONFIG & LOGGING
-# -------------------------------------------------
+# === CONFIGURATION ===
 ref_pattern = re.compile(r'^\d+(\.\d+)*\b')
 logging.basicConfig(
     filename='audit.log',
@@ -38,9 +36,7 @@ USERS_FILE = "users.json"
 Path(PLAYBOOKS_DIR).mkdir(exist_ok=True)
 Path(USERS_FILE).touch(exist_ok=True)
 
-# -------------------------------------------------
-# PAGE CONFIG & GLOBAL CSS (jovalwines.com.au style)
-# -------------------------------------------------
+# === PAGE CONFIG & MODERN UI (jovalwines.com.au style) ===
 st.set_page_config(
     page_title="Joval Wines NIST Playbook Tracker",
     page_icon="wine",
@@ -50,143 +46,648 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-/* ---------- Tailwind CDN (modern look) ---------- */
+/* Tailwind CDN */
 @import url('https://cdn.tailwindcss.com');
 
-/* ---------- Core colours (jovalwines.com.au) ---------- */
+/* Core Colors */
 :root{
     --bg:#ffffff;
     --text:#111111;
     --muted:#666666;
     --red:#800020;
     --card-bg:#fafafa;
+    --border:#eaeaea;
 }
 
-/* ---------- Global ---------- */
+/* Global */
 html,body,.stApp{background:var(--bg)!important;color:var(--text)!important;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;}
 .stApp > footer,.stApp [data-testid="stToolbar"],.stApp [data-testid="collapsedControl"],.stDeployButton{display:none!important;}
 
-/* ---------- Header ---------- */
+/* Header */
 .sticky-header{
     position:sticky;top:0;z-index:9999;
     display:flex;align-items:center;justify-content:space-between;
     padding:1rem 2rem;background:#fff;
-    border-bottom:1px solid #eee;box-shadow:0 2px 8px rgba(0,0,0,.05);
+    border-bottom:1px solid var(--border);box-shadow:0 2px 8px rgba(0,0,0,.05);
 }
 .logo-left{height:70px;}
 .app-title{font-size:2.2rem;font-weight:700;color:var(--text);margin:0;}
 .nist-logo{font-size:1.8rem;color:var(--red);font-weight:700;}
 
-/* ---------- Sidebar ---------- */
+/* Sidebar */
 .css-1d391kg{padding-top:1rem;}
 .sidebar-header{font-weight:600;font-size:1.1rem;margin-bottom:.5rem;}
 .sidebar-subheader{font-weight:600;margin-top:1rem;margin-bottom:.5rem;}
 
-/* ---------- Main content ---------- */
+/* Content */
 .content-wrap{margin-left:280px;padding:2rem 2rem 6rem;}
 .section-card{
     background:var(--card-bg);padding:1.5rem;border-radius:12px;
     margin-bottom:1.5rem;box-shadow:0 2px 6px rgba(0,0,0,.04);
-    border:1px solid #eaeaea;
+    border:1px solid var(--border);
 }
 .section-title{font-size:1.7rem;font-weight:700;margin-bottom:.75rem;color:var(--text);}
 .nist-incident-section{color:var(--red)!important;}
 
-/* ---------- Buttons ---------- */
+/* Buttons */
 .stButton>button,.stDownloadButton>button{
     background:#000!important;color:#fff!important;
     border-radius:8px;padding:.5rem 1rem;font-weight:600;
 }
 .stButton>button:hover,.stDownloadButton>button:hover{opacity:.9;}
 
-/* ---------- Progress bar ---------- */
-.progress-wrap{height:12px;background:#e5e5e5;border-radius:999px;overflow:hidden;}
+/* Progress */
+.progress-wrap{height:12px;background:#e5e5e5;border-radius:999px;overflow:hidden;margin:1rem 0;}
 .progress-fill{height:100%;background:var(--red);transition:width .4s ease;}
 
-/* ---------- Bottom toolbar ---------- */
+/* Bottom Toolbar */
 .bottom-toolbar{
     position:fixed;bottom:0;left:0;right:0;z-index:999;
-    background:#fff;border-top:1px solid #eee;
+    background:#fff;border-top:1px solid var(--border);
     padding:.75rem 2rem;display:flex;align-items:center;justify-content:space-between;
     box-shadow:0 -2px 8px rgba(0,0,0,.03);
 }
 
-/* ---------- Responsive ---------- */
+/* Responsive */
 @media (max-width:768px){
     .sticky-header{flex-direction:column;padding:1rem;}
     .app-title{font-size:1.8rem;}
     .content-wrap{margin-left:0;padding:1rem;}
+    .toc{display:none;}
 }
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------------------------------------
-# USER MANAGEMENT (unchanged)
-# -------------------------------------------------
-def load_users(): ...
-def save_users(users): ...
-def get_user_role(email): ...
-def create_user(email, role, password): ...
-def reset_user_password(email, password): ...
-def delete_user(email): ...
-def authenticate(): ...
+# === USER MANAGEMENT ===
+def load_users():
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, "r") as f:
+                content = f.read().strip()
+                if content:
+                    return {k.lower(): v for k, v in json.loads(content).items()}
+        except (json.JSONDecodeError, ValueError):
+            pass
 
-# -------------------------------------------------
-# ADMIN DASHBOARD (unchanged)
-# -------------------------------------------------
-def admin_dashboard(user): ...
+    admin_email = "admin@joval.com"
+    admin_hash = st.secrets.get("ADMIN_PASSWORD_HASH")
+    if not admin_hash:
+        st.error("ADMIN_PASSWORD_HASH not set in secrets.toml")
+        st.stop()
+    
+    default_admin = {admin_email: {"role": "admin", "hash": admin_hash}}
+    save_users(default_admin)
+    return default_admin
 
-# -------------------------------------------------
-# UTILITIES (unchanged except PDF generation removed)
-# -------------------------------------------------
-def stable_key(playbook_name: str, title: str, level: int) -> str: ...
+def save_users(users):
+    with open(USERS_FILE, "w") as f:
+        json.dump({k.lower(): v for k, v in users.items()}, f, indent=2)
+
+def get_user_role(email):
+    users = load_users()
+    return users.get(email.lower(), {}).get("role", "user")
+
+def create_user(email, role, password):
+    users = load_users()
+    email = email.lower()
+    if email in users:
+        return False, "User already exists."
+    hash_pass = hashlib.sha256(password.encode()).hexdigest()
+    users[email] = {"role": role, "hash": hash_pass}
+    save_users(users)
+    logging.info(f"User created: {email}, Role: {role}")
+    return True, "User created successfully."
+
+def reset_user_password(email, password):
+    users = load_users()
+    email = email.lower()
+    if email not in users:
+        return False, "User not found."
+    hash_pass = hashlib.sha256(password.encode()).hexdigest()
+    users[email]["hash"] = hash_pass
+    save_users(users)
+    logging.info(f"Password reset: {email}")
+    return True, "Password reset successfully."
+
+def delete_user(email):
+    users = load_users()
+    email = email.lower()
+    if email in users:
+        del users[email]
+        save_users(users)
+        logging.info(f"User deleted: {email}")
+        return True, "User deleted successfully."
+    return False, "User not found."
+
+def authenticate():
+    if 'login_attempts' not in st.session_state:
+        st.session_state.login_attempts = 0
+    if 'last_attempt' not in st.session_state:
+        st.session_state.last_attempt = None
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+    if 'user' not in st.session_state:
+        st.session_state.user = None
+
+    if not st.session_state.authenticated:
+        st.title("Joval Wines NIST Playbook Tracker")
+        st.markdown("### Login Required")
+        st.markdown(get_logo(), unsafe_allow_html=True)
+        
+        username = st.text_input("Username", key="username")
+        password = st.text_input("Password", type="password", key="password")
+        
+        now = datetime.now()
+        if st.button("Login"):
+            if st.session_state.login_attempts >= 5:
+                if st.session_state.last_attempt and (now - st.session_state.last_attempt).seconds < 300:
+                    st.error("Too many failed attempts. Try again in 5 minutes.")
+                    st.stop()
+                else:
+                    st.session_state.login_attempts = 0
+            
+            users = load_users()
+            email = username if "@" in username else username + "@joval.com"
+            email = email.lower()
+            if email in users:
+                if hashlib.sha256(password.encode()).hexdigest() == users[email]["hash"]:
+                    st.session_state.authenticated = True
+                    display_name = username.split("@")[0].title() if "@" in username else username.title()
+                    st.session_state.user = {"email": email, "name": display_name, "role": users[email]["role"]}
+                    st.session_state.login_attempts = 0
+                    st.success("Logged in successfully!")
+                    st.rerun()
+                else:
+                    st.session_state.login_attempts += 1
+                    st.session_state.last_attempt = now
+                    st.error("Invalid credentials.")
+            else:
+                st.session_state.login_attempts += 1
+                st.session_state.last_attempt = now
+                st.error("Invalid credentials.")
+        st.stop()
+
+    if st.sidebar.button("Logout"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
+    return st.session_state.user
+
+# === ADMIN DASHBOARD ===
+def admin_dashboard(user):
+    if get_user_role(user["email"]) != "admin":
+        st.error("Access denied. Admin only.")
+        return
+
+    st.title("Admin Dashboard")
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Create User", "Reset Password", "List Users", "Delete User", "Upload Logo/Playbook"])
+
+    with tab1:
+        st.subheader("Create New User")
+        email_input = st.text_input("User Email")
+        email = email_input if "@" in email_input else email_input + "@joval.com"
+        role = st.selectbox("Role", ["user", "admin"])
+        generate_pass = st.checkbox("Generate Random Password", value=True)
+        if generate_pass:
+            password = secrets.token_urlsafe(16)
+            st.markdown(f'<p style="font-size:2rem;">Generated Password: <strong>{password}</strong></p> <p>(Share securely; shown only once)</p>', unsafe_allow_html=True)
+        else:
+            password = st.text_input("Set Password", type="password")
+        if st.button("Create User"):
+            if email and password:
+                success, msg = create_user(email, role, password)
+                if success:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+            else:
+                st.error("Fill all fields.")
+
+    with tab2:
+        st.subheader("Reset User Password")
+        email_input = st.text_input("User Email to Reset")
+        email = email_input if "@" in email_input else email_input + "@joval.com"
+        generate_pass = st.checkbox("Generate Random Password", value=True, key="reset_gen")
+        if generate_pass:
+            password = secrets.token_urlsafe(16)
+            show_pass = f'<p style="font-size:2rem;">Generated Password: <strong>{password}</strong></p> <p>(Share securely; shown only once)</p>'
+        else:
+            password = st.text_input("Set New Password", type="password", key="reset_custom")
+            show_pass = "Password set."
+        if st.button("Reset Password"):
+            if email and password:
+                success, msg = reset_user_password(email, password)
+                if success:
+                    st.markdown(show_pass, unsafe_allow_html=True) if generate_pass else st.success(msg)
+                else:
+                    st.error(msg)
+            else:
+                st.error("Enter email and password.")
+
+    with tab3:
+        st.subheader("List Users")
+        users = load_users()
+        user_list = [{"Email": k, "Role": v["role"]} for k, v in users.items()]
+        st.table(pd.DataFrame(user_list))
+
+    with tab4:
+        st.subheader("Delete User")
+        email_input = st.text_input("User Email to Delete")
+        email = email_input if "@" in email_input else email_input + "@joval.com"
+        if st.button("Delete User"):
+            if email:
+                success, msg = delete_user(email)
+                if success:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+            else:
+                st.error("Enter email.")
+
+    with tab5:
+        st.subheader("Upload Custom Logo")
+        uploaded_logo = st.file_uploader("Upload Logo", type=["png", "jpg", "jpeg"])
+        if uploaded_logo:
+            st.session_state.logo_b64 = base64.b64encode(uploaded_logo.read()).decode()
+            st.success("Logo uploaded!")
+            st.rerun()
+        st.subheader("Upload New Playbook")
+        uploaded_playbook = st.file_uploader("Upload Word Doc", type=["docx"])
+        if uploaded_playbook:
+            file_path = os.path.join(PLAYBOOKS_DIR, uploaded_playbook.name)
+            with open(file_path, "wb") as f:
+                f.write(uploaded_playbook.getbuffer())
+            st.success(f"Playbook uploaded!")
+
+    if st.button("Back to Main App"):
+        st.session_state.admin_page = False
+        st.rerun()
+
+# === UTILITIES ===
+def stable_key(playbook_name: str, title: str, level: int) -> str:
+    base = f"{playbook_name}||{level}||{title}"
+    return "sec_" + hashlib.md5(base.encode("utf-8")).hexdigest()
+
 @st.cache_data
-def progress_filepath(playbook_name: str) -> str: ...
-@st.cache_data
-def load_progress(playbook_name: str): ...
-def save_progress(playbook_name: str, completed_map: dict, comments_map: dict) -> str: ...
-def safe_image_display(src: str) -> bool: ...
-def calculate_badges(pct: int) -> List[str]: ...
-def save_feedback(rating: int, comments: str): ...
-def show_feedback(): ...
-def get_logo(): ...
-def theme_selector(): ...
+def progress_filepath(playbook_name: str) -> str:
+    base = os.path.splitext(playbook_name)[0]
+    return os.path.join(PLAYBOOKS_DIR, f"{base}_progress.json")
 
-# ---------- EXCEL / CSV (unchanged) ----------
+@st.cache_data
+def load_progress(playbook_name: str):
+    path = progress_filepath(playbook_name)
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+                return data.get("completed", {}), data.get("comments", {})
+        except Exception:
+            return {}, {}
+    return {}, {}
+
+def save_progress(playbook_name: str, completed_map: dict, comments_map: dict) -> str:
+    rec = {
+        "playbook": playbook_name,
+        "timestamp": datetime.now().isoformat(),
+        "version": "1.0",
+        "completed": completed_map,
+        "comments": comments_map,
+    }
+    path = progress_filepath(playbook_name)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(rec, fh, indent=2)
+    return path
+
+def safe_image_display(src: str) -> bool:
+    if not src:
+        return False
+    try:
+        st.markdown(f"<img style='max-width:90%;height:auto;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.6);margin:12px 0;display:block;' src='{src}'/>", unsafe_allow_html=True)
+        return True
+    except Exception:
+        try:
+            st.image(src)
+            return True
+        except Exception:
+            return False
+
+def calculate_badges(pct: int) -> List[str]:
+    if pct >= 100:
+        return ["Gold Star"]
+    elif pct >= 80:
+        return ["Silver Shield"]
+    elif pct >= 50:
+        return ["Bronze Medal"]
+    elif pct >= 25:
+        return ["Progress Starter"]
+    elif pct > 0:
+        return ["Just Started"]
+    else:
+        return ["Ready to Begin"]
+
+def save_feedback(rating: int, comments: str):
+    feedback_data = {"rating": rating, "comments": comments, "timestamp": datetime.now().isoformat()}
+    with open("feedback.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps(feedback_data) + "\n")
+
+def show_feedback():
+    with st.expander("Provide Feedback"):
+        with st.form("feedback_form"):
+            rating = st.slider("Rate this session (1-5)", 1, 5, 3)
+            feedback_comments = st.text_area("Additional feedback")
+            if st.form_submit_button("Submit"):
+                save_feedback(rating, feedback_comments)
+                st.success("Feedback submitted! Thank you.")
+
+def get_logo():
+    if "logo_b64" not in st.session_state:
+        st.session_state.logo_b64 = None
+    if st.session_state.logo_b64:
+        return f'<img src="data:image/png;base64,{st.session_state.logo_b64}" class="logo-left" alt="Custom Logo" style="display: block; margin: 0 auto; max-width: 200px;" />'
+    default_logo_path = "logo.png"
+    if os.path.exists(default_logo_path):
+        with open(default_logo_path, "rb") as f:
+            logo_bytes = f.read()
+            return f'<img src="data:image/png;base64,{base64.b64encode(logo_bytes).decode()}" class="logo-left" alt="Default Logo" style="display: block; margin: 0 auto; max-width: 200px;" />'
+    return '<div class="logo-left"></div>'
+
+def theme_selector():
+    theme = st.sidebar.selectbox("Select Theme", ["Light", "Dark"], index=0, key="theme_selector")
+    if theme == "Dark":
+        st.markdown("""
+        <style>
+        :root { --bg:#000; --text:#fff; --muted:#aaa; --card-bg:rgba(255,255,255,0.02); --border:rgba(255,255,255,0.1); }
+        html, body, .stApp { background:var(--bg)!important; color:var(--text)!important; }
+        .sticky-header, .bottom-toolbar { background:rgba(0,0,0,0.95); border-color:var(--border); }
+        .section-card { background:var(--card-bg); border-color:var(--border); }
+        .progress-wrap { background:rgba(255,255,255,0.1); }
+        </style>
+        """, unsafe_allow_html=True)
+    return theme
+
 @st.cache_data(ttl=300)
-def export_to_excel(completed_map: Dict, comments_map: Dict, selected_playbook: str, bulk_export: bool = False) -> bytes: ...
+def export_to_excel(completed_map: Dict, comments_map: Dict, selected_playbook: str, bulk_export: bool = False) -> bytes:
+    if not OPENPYXL_AVAILABLE:
+        return b""
+    df_completed = pd.DataFrame(list(completed_map.items()), columns=["Task_Key", "Status"])
+    df_comments = pd.DataFrame(list(comments_map.items()), columns=["Task_Key", "Comment"])
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_completed.to_excel(writer, sheet_name="Progress", index=False)
+        df_comments.to_excel(writer, sheet_name="Comments", index=False)
+        if bulk_export:
+            for pb in playbooks:
+                if pb != selected_playbook:
+                    comp, _ = load_progress(pb)
+                    df_pb = pd.DataFrame(list(comp.items()), columns=["Task_Key", "Status"])
+                    sheet_name = re.sub(r'[^\w\-_]', '_', pb.replace('.docx', ''))[:31]
+                    df_pb.to_excel(writer, sheet_name=sheet_name, index=False)
+    return output.getvalue()
+
 @st.cache_data
-def export_to_csv(completed_map: Dict, comments_map: Dict, selected_playbook: str) -> bytes: ...
+def export_to_csv(completed_map: Dict, comments_map: Dict, selected_playbook: str) -> bytes:
+    df = pd.DataFrame({
+        "Task_Key": list(completed_map.keys()) + list(comments_map.keys()),
+        "Status": [str(completed_map.get(k, '')) for k in completed_map.keys()] + [''] * len(comments_map),
+        "Comment": [''] * len(completed_map) + [str(v) for v in comments_map.values()]
+    })
+    return df.to_csv(index=False).encode('utf-8')
 
-# ---------- JIRA ----------
-def create_jira_ticket(summary: str, description: str): ...
+def create_jira_ticket(summary: str, description: str):
+    try:
+        import requests
+        jira_url = st.secrets["JIRA_URL"]
+        email = st.secrets["JIRA_EMAIL"]
+        token = st.secrets["JIRA_TOKEN"]
+        project_key = st.secrets["JIRA_PROJECT_KEY"]
+        auth = base64.b64encode(f"{email}:{token}".encode()).decode()
+        headers = {"Authorization": f"Basic {auth}", "Content-Type": "application/json"}
+        data = json.dumps({
+            "fields": {
+                "project": {"key": project_key},
+                "summary": summary,
+                "description": description,
+                "issuetype": {"name": "Task"}
+            }
+        })
+        response = requests.post(jira_url, headers=headers, data=data)
+        if response.status_code == 201:
+            ticket_key = response.json()["key"]
+            st.success(f"Jira ticket created: {ticket_key}")
+            logging.info(f"Jira ticket created: {ticket_key}")
+        else:
+            st.error(f"Failed to create Jira ticket: {response.text}")
+    except Exception as e:
+        st.error(f"Jira integration error: {e}")
 
-# -------------------------------------------------
-# PLAYBOOK PARSING (unchanged)
-# -------------------------------------------------
+# === PLAYBOOK PARSING ===
 @st.cache_data(hash_funcs={Path: lambda p: str(p)})
-def parse_playbook_cached(path: str) -> List[Dict[str, Any]]: ...
+def parse_playbook_cached(path: str) -> List[Dict[str, Any]]:
+    with open(path, "rb") as fh:
+        result = mammoth.convert_to_html(fh)
+        html = result.value
+    soup = BeautifulSoup(html, "html.parser")
 
-# -------------------------------------------------
-# RENDERING HELPERS
-# -------------------------------------------------
+    exclude_terms = ["table of contents", "document control", "document revision", "assumptions", "disclaimer"]
+    def excluded(text: str) -> bool:
+        if not text:
+            return False
+        tl = text.strip().lower()
+        return any(ex in tl for ex in exclude_terms)
+
+    sections = []
+    stack = []
+
+    for tag in soup.find_all(['h1','h2','h3','h4','p','table','img']):
+        if tag.name.startswith('h') and tag.name[1:].isdigit():
+            title = tag.get_text().strip()
+            if excluded(title):
+                continue
+            level = int(tag.name[1])
+            node = {"title": title, "level": level, "content": [], "subs": []}
+            while stack and stack[-1]["level"] >= level:
+                stack.pop()
+            if stack:
+                stack[-1]["subs"].append(node)
+            else:
+                sections.append(node)
+            stack.append(node)
+        elif tag.name == 'p':
+            text = tag.get_text(separator="\n").strip()
+            if text and stack:
+                stack[-1]["content"].append({"type": "text", "value": text})
+        elif tag.name == 'img':
+            src = tag.get("src", "")
+            if src and stack:
+                stack[-1]["content"].append({"type": "image", "value": src})
+        elif tag.name == 'table':
+            rows = [[td.get_text(separator="\n").strip() for td in tr.find_all(["td","th"])] for tr in tag.find_all("tr")]
+            if rows and stack:
+                stack[-1]["content"].append({"type": "table", "value": rows})
+
+    def reconstruct_tables_in_section(section):
+        contents = section.get("content", [])
+        i = 0
+        new_contents = []
+        header_keywords = ["reference", "step", "description", "ownership", "responsibility"]
+        owner_keywords = ["incident response team", "irt", "ownership", "responsibility", "it team leadership", "risk management team", "grc"]
+        while i < len(contents):
+            item = contents[i]
+            if item["type"] != "text":
+                new_contents.append(item)
+                i += 1
+                continue
+            txt = item["value"].strip()
+            txt_lower = txt.lower()
+            keyword_count = sum(1 for word in header_keywords if word in txt_lower)
+            is_header_like = keyword_count >= 2
+            if is_header_like or ref_pattern.match(txt):
+                headers = ["Reference", "Step", "Description", "Ownership/Responsibility"]
+                rows = []
+                current_ref = current_step = ""
+                current_desc_parts = []
+                j = i if not is_header_like else i + 1
+                while j < len(contents) and contents[j]["type"] == "text":
+                    txt_j = contents[j]["value"].strip()
+                    if ref_pattern.match(txt_j):
+                        if current_ref:
+                            desc = " ".join(current_desc_parts)
+                            owner = current_desc_parts.pop() if current_desc_parts and any(p in current_desc_parts[-1].lower() for p in owner_keywords) else ""
+                            rows.append([current_ref, current_step, desc, owner])
+                            current_desc_parts = []
+                        match_obj = ref_pattern.match(txt_j)
+                        current_ref = match_obj.group(0)
+                        current_step = txt_j[match_obj.end():].strip()
+                    else:
+                        current_desc_parts.append(txt_j)
+                    j += 1
+                if current_ref:
+                    desc = " ".join(current_desc_parts)
+                    owner = current_desc_parts.pop() if current_desc_parts and any(p in current_desc_parts[-1].lower() for p in owner_keywords) else ""
+                    rows.append([current_ref, current_step, desc, owner])
+                if rows:
+                    new_contents.append({"type": "table", "value": [headers] + rows})
+                i = j
+            else:
+                new_contents.append(item)
+                i += 1
+        section["content"] = new_contents
+
+    def walk_and_reconstruct(nodes):
+        for n in nodes:
+            reconstruct_tables_in_section(n)
+            if n.get("subs"):
+                walk_and_reconstruct(n["subs"])
+
+    walk_and_reconstruct(sections)
+
+    def prune(node):
+        kept_subs = [sub for sub in node.get("subs", []) if prune(sub)]
+        node["subs"] = kept_subs
+        return bool(node.get("content")) or bool(kept_subs)
+
+    return [s for s in sections if prune(s)]
+
+# === RENDERING ===
 ACTION_HEADERS = {"reference","ref","step","description","ownership","responsibility","owner","responsible"}
 
-def is_action_table(rows: List[List[str]]) -> bool: ...
+def is_action_table(rows: List[List[str]]) -> bool:
+    if not rows:
+        return False
+    headers = [h.strip().lower() for h in rows[0]]
+    hits = sum(1 for h in headers if any(k in h for k in ACTION_HEADERS))
+    if hits >= 2 or (len(rows[0]) >= 4 and ref_pattern.match(rows[0][0].strip())):
+        return True
+    return False
 
-def render_action_table(playbook_name, sec_key, rows, completed_map, comments_map, autosave, table_index=0): ...
-def render_generic_table(rows: List[List[str]]): ...
-def render_section_content(section, playbook_name, completed_map, comments_map, autosave, sec_key, is_sub=False): ...
-def render_section(section, playbook_name, completed_map, comments_map, autosave): ...
+def render_action_table(playbook_name, sec_key, rows, completed_map, comments_map, autosave, table_index=0):
+    default_headers = ["Reference", "Step", "Description", "Ownership/Responsibility"]
+    headers = rows[0] if len(rows) > 0 and not ref_pattern.match(rows[0][0].strip() if rows[0] else "") else default_headers
+    data_rows = rows[1:] if len(rows) > 1 else rows
+    for row in data_rows:
+        while len(row) < 4:
+            row.append("")
+    st.caption("Mark tasks complete and add notes.")
+    cols = st.columns([1, 2, 4, 2, 1, 2])
+    for i, h in enumerate(["Ref", "Step", "Desc", "Owner", "Done", "Comment"]):
+        cols[i].write(h)
+    changed = False
+    table_key = f"{sec_key}::tbl::{table_index}"
+    for ridx, row in enumerate(data_rows):
+        row_key = f"{table_key}::row::{ridx}"
+        comment_key = f"{row_key}::comment"
+        ref = row[0]
+        step = row[1]
+        desc = " ".join(row[2:-1])
+        owner = row[-1]
+        prev_val = completed_map.get(row_key, False)
+        prev_comment = comments_map.get(comment_key, "")
+        cols = st.columns([1, 2, 4, 2, 1, 2])
+        cols[0].write(ref)
+        cols[1].write(step)
+        cols[2].write(desc)
+        cols[3].write(owner)
+        new_val = cols[4].checkbox("", value=prev_val, key=f"cb_{row_key}")
+        new_comment = cols[5].text_input("", value=prev_comment, key=f"ci_{comment_key}", label_visibility="collapsed")
+        if new_val != prev_val:
+            completed_map[row_key] = new_val
+            changed = True
+        if new_comment != prev_comment:
+            comments_map[comment_key] = new_comment
+            changed = True
+    if autosave and changed:
+        save_progress(playbook_name, completed_map, comments_map)
 
-# -------------------------------------------------
-# MAIN APP
-# -------------------------------------------------
+def render_generic_table(rows: List[List[str]]):
+    if len(rows) > 1:
+        df = pd.DataFrame(rows[1:], columns=rows[0])
+    else:
+        df = pd.DataFrame(rows)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+def render_section_content(section, playbook_name, completed_map, comments_map, autosave, sec_key, is_sub=False):
+    table_idx = 0
+    for item in section.get("content", []):
+        t = item.get("type")
+        if t == "text":
+            text = item.get("value", "").replace("\n", "<br/>")
+            st.markdown(f'<div style="font-size:1.1rem;line-height:1.6;">{text}</div>', unsafe_allow_html=True)
+        elif t == "image":
+            safe_image_display(item.get("value", ""))
+        elif t == "table":
+            rows = item.get("value", [])
+            if rows:
+                if is_action_table(rows):
+                    render_action_table(playbook_name, sec_key, rows, completed_map, comments_map, autosave, table_idx)
+                    table_idx += 1
+                else:
+                    render_generic_table(rows)
+    for sub in section.get("subs", []):
+        sub_key = stable_key(playbook_name, sub["title"], sub["level"])
+        st.markdown(f"<div id='{sub_key}' style='margin-top:12px;'><strong style='color:var(--text);'>{sub['title']}</strong></div>", unsafe_allow_html=True)
+        render_section_content(sub, playbook_name, completed_map, comments_map, autosave, sub_key, True)
+    if not is_sub:
+        st.markdown("<div style='font-weight:700;margin-top:12px;margin-bottom:6px;'>Comments / Notes</div>", unsafe_allow_html=True)
+        prev_sec_comment = comments_map.get(sec_key, "")
+        new_sec_comment = st.text_area("", value=prev_sec_comment, key=f"c::{sec_key}", height=120, label_visibility="collapsed")
+        if new_sec_comment != prev_sec_comment:
+            comments_map[sec_key] = new_sec_comment
+            if autosave:
+                save_progress(playbook_name, completed_map, comments_map)
+
+def render_section(section, playbook_name, completed_map, comments_map, autosave):
+    sec_key = stable_key(playbook_name, section["title"], section["level"])
+    title_class = "nist-incident-section" if section["title"] == "NIST Incident Handling Categories" else ""
+    st.markdown(f"<div class='section-title {title_class}' id='{sec_key}'>{section['title']}</div>", unsafe_allow_html=True)
+    with st.expander("Expand section", expanded=False):
+        render_section_content(section, playbook_name, completed_map, comments_map, autosave, sec_key)
+
+# === MAIN APP ===
 def main():
     user = authenticate()
     st.sidebar.info(f"Logged in as: **{user['name']}** – *{get_user_role(user['email'])}*")
 
-    # ----- ADMIN -----
     if get_user_role(user["email"]) == "admin":
         if st.sidebar.button("Admin Dashboard"):
             st.session_state.admin_page = True
@@ -195,13 +696,11 @@ def main():
         admin_dashboard(user)
         return
 
-    # ----- GAMIFY -----
     if 'gamify' not in st.session_state: st.session_state.gamify = False
     if 'gamify_count' not in st.session_state: st.session_state.gamify_count = 0
 
     theme_selector()
 
-    # ----- HEADER -----
     logo_html = get_logo()
     st.markdown(f"""
     <div class="sticky-header">
@@ -211,7 +710,7 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # ----- SIDEBAR CONTROLS (search removed) -----
+    # === SIDEBAR CONTROLS ===
     st.sidebar.markdown('<div class="sidebar-header">Controls</div>', unsafe_allow_html=True)
     autosave = st.sidebar.checkbox("Auto-save progress", value=True)
     bulk_export = st.sidebar.checkbox("Bulk export")
@@ -231,7 +730,8 @@ def main():
     st.sidebar.markdown('<div style="font-weight:600;">© Joval Wines</div>', unsafe_allow_html=True)
     st.sidebar.markdown('<div style="font-weight:600;">Better Never Stops</div>', unsafe_allow_html=True)
 
-    # ----- PLAYBOOK SELECT -----
+    # === PLAYBOOK SELECT ===
+    global playbooks
     playbooks = sorted([f for f in os.listdir(PLAYBOOKS_DIR) if f.lower().endswith(".docx")])
     if not playbooks:
         st.error(f"No .docx files found in '{PLAYBOOKS_DIR}'.")
@@ -253,7 +753,7 @@ def main():
         """, unsafe_allow_html=True)
         st.stop()
 
-    # ----- INSTRUCTIONAL BANNER -----
+    # === INSTRUCTIONAL BANNER ===
     st.markdown("""
     <div style="background:#fff3cd;padding:1.2rem;border-radius:8px;border:2px solid #d9534f;
                 text-align:center;font-size:1.4rem;font-weight:600;color:#d9534f;margin:1.5rem 0;">
@@ -262,7 +762,7 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # ----- LOAD PLAYBOOK -----
+    # === LOAD PLAYBOOK ===
     parsed_key = f"parsed::{selected_playbook}"
     if parsed_key not in st.session_state:
         st.session_state[parsed_key] = parse_playbook_cached(os.path.join(PLAYBOOKS_DIR, selected_playbook))
@@ -274,7 +774,7 @@ def main():
     completed_map = st.session_state[f"completed::{selected_playbook}"]
     comments_map = st.session_state[f"comments::{selected_playbook}"]
 
-    # ----- TOC (fixed left side) -----
+    # === TOC ===
     toc_items = []
     def walk_toc(secs):
         for s in secs:
@@ -284,18 +784,18 @@ def main():
     walk_toc(sections)
 
     toc_html = "<div style='position:fixed;left:1rem;top:110px;bottom:100px;width:250px;background:#fff;padding:1rem;border-radius:8px;overflow:auto;box-shadow:0 2px 6px rgba(0,0,0,.04);border:1px solid #eaeaea;'><h4 style='margin-top:0;'>Table of Contents</h4>" + "".join(
-        f"<a href='#' onclick=\"document.getElementById('{a[\"anchor\"]}').scrollIntoView({{behavior:'smooth'}});return false;\" style='display:block;padding:4px 0;color:#111;text-decoration:none;'>{a['title']}</a>"
+        f"<a href='#' onclick=\"document.getElementById('{a['anchor']}').scrollIntoView({{behavior:'smooth'}});return false;\" style='display:block;padding:4px 0;color:#111;text-decoration:none;'>{a['title']}</a>"
         for a in toc_items
     ) + "</div>"
     st.markdown(toc_html, unsafe_allow_html=True)
 
-    # ----- CONTENT -----
+    # === CONTENT ===
     st.markdown('<div class="content-wrap">', unsafe_allow_html=True)
     for sec in sections:
         render_section(sec, selected_playbook, completed_map, comments_map, autosave)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # ----- PROGRESS -----
+    # === PROGRESS ===
     total_checks = len([k for k in completed_map if '::row::' in k])
     done_checks = sum(1 for v in completed_map.values() if v)
     pct = int((done_checks / max(total_checks, 1)) * 100)
@@ -319,7 +819,7 @@ def main():
     if st.button("Refresh"):
         st.rerun()
 
-    # ----- ACTION BUTTONS (CSV / Excel / Jira) -----
+    # === ACTION BUTTONS ===
     c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("Save Progress"):
@@ -341,15 +841,14 @@ def main():
                                f"{os.path.splitext(selected_playbook)[0]}_progress.xlsx",
                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     with c3:
-        pass   # PDF button removed
+        pass  # PDF removed
 
-    # ----- AUTO-SAVE & FEEDBACK -----
     if autosave:
         save_progress(selected_playbook, completed_map, comments_map)
 
     show_feedback()
 
-    # ----- BOTTOM TOOLBAR -----
+    # === BOTTOM TOOLBAR ===
     st.markdown(f"""
     <div class="bottom-toolbar">
         <div>© Joval Wines – Better Never Stops</div>
