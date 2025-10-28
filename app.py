@@ -819,9 +819,10 @@ def generate_pdf_bytes(sections: List[Dict[str, Any]], playbook_name: str) -> by
         st.error(f"PDF generation failed: {str(e)}")
         return b""
 
-# === FAST, CACHED SEARCH ===
+# === GLOBAL SEARCH (ALL PLAYBOOKS) ===
 @st.cache_data(ttl=600)
 def run_search_assistant(query: str, playbooks_list: List[str], top_k: int = 7):
+    """Return list of dicts with playbook, title, level, anchor."""
     corpus = []
     for pb in playbooks_list:
         path = os.path.join(PLAYBOOKS_DIR, pb)
@@ -939,7 +940,7 @@ def main():
     completed_map = st.session_state[f"completed::{selected_playbook}"]
     comments_map = st.session_state[f"comments::{selected_playbook}"]
 
-    # === SEARCH RESULTS WITH JAVASCRIPT SCROLL (FIXED) ===
+    # === SEARCH RESULTS (ALL PLAYBOOKS, NO NEW TAB) ===
     if search_btn and query:
         results = run_search_assistant(query, playbooks, 10)
         if results:
@@ -949,19 +950,22 @@ def main():
             )
             for r in results:
                 clean_name = r["playbook"].replace(".docx", "").split(" v")[0]
-                qs_key = f"search_{hashlib.md5(r['anchor'].encode()).hexdigest()[:8]}"
+                # unique JS function name
+                func_id = f"go_{hashlib.md5(r['anchor'].encode()).hexdigest()[:8]}"
                 link_html = f"""
                 <script>
-                function goTo_{qs_key}() {{
+                function {func_id}() {{
                     const targetPb = "{r['playbook']}";
-                    const currentPb = "{selected_playbook}";
-                    if (targetPb !== currentPb) {{
+                    const curPb = "{selected_playbook}";
+                    if (targetPb !== curPb) {{
+                        // switch playbook
                         window.parent.document
                             .querySelector('[data-testid="stAppViewContainer"]')
                             .contentWindow.__setItem__("select_playbook", targetPb);
-                        const newUrl = new URL(window.location);
-                        newUrl.searchParams.set('anchor', '{r['anchor']}');
-                        history.replaceState(null, '', newUrl);
+                        // keep anchor after rerun
+                        const u = new URL(window.location);
+                        u.searchParams.set('anchor', '{r['anchor']}');
+                        history.replaceState(null, '', u);
                         window.location.search = "?rerun=1";
                     }} else {{
                         window.location.hash = "#{r['anchor']}";
@@ -969,7 +973,7 @@ def main():
                     }}
                 }}
                 </script>
-                <a onclick="goTo_{qs_key}()" style="color:#800020;text-decoration:underline;cursor:pointer;">
+                <a onclick="{func_id}()" style="color:#800020;text-decoration:underline;cursor:pointer;">
                     {r['title']}
                 </a>
                 """
@@ -983,7 +987,7 @@ def main():
         else:
             st.sidebar.info("No results found.")
 
-    # === TOC WITH JAVASCRIPT SCROLL ===
+    # === TOC (same as before) ===
     toc_items = []
     def walk_toc(secs):
         for s in secs:
@@ -999,7 +1003,7 @@ def main():
     ) + "</div>"
     st.markdown(toc_html, unsafe_allow_html=True)
 
-    # === AUTO-SCROLL ON LOAD IF ANCHOR IN URL ===
+    # === AUTO-SCROLL IF ?anchor=… IS IN URL (after playbook switch) ===
     qs = st.experimental_get_query_params()
     if "anchor" in qs:
         anchor_id = qs["anchor"][0]
@@ -1007,7 +1011,8 @@ def main():
             f"<script>window.onload = function() {{ scrollToSection('{anchor_id}'); }};</script>",
             unsafe_allow_html=True,
         )
-        st.experimental_set_query_params()  # clear it
+        # clean URL
+        st.experimental_set_query_params()
 
     st.markdown('<div class="content-wrap">', unsafe_allow_html=True)
     for sec in sections:
