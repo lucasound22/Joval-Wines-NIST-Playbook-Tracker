@@ -62,7 +62,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# === FULL CSS + JAVASCRIPT FOR SCROLLING & HIGHLIGHTING ===
+# === FULL CSS + JAVASCRIPT FOR SCROLLING, HIGHLIGHTING & EXPANDING ===
 st.markdown("""
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -100,6 +100,18 @@ function highlightText(id, term) {
             n.parentNode.replaceChild(fragment, n);
         }
     });
+}
+function expandSection(id) {
+    const section = document.getElementById(id);
+    if (!section) return;
+    const expander = section.closest('[data-testid="stExpander"]') || 
+                     section.parentElement.querySelector('[data-testid="stExpander"]');
+    if (expander) {
+        const details = expander.querySelector('details');
+        if (details && !details.open) {
+            details.open = true;
+        }
+    }
 }
 </script>
 <style>
@@ -224,7 +236,6 @@ def load_users():
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Default admin: hash stored in st.secrets
     admin_email = "admin@joval.com"
     admin_hash = st.secrets.get("ADMIN_PASSWORD_HASH")
     if not admin_hash:
@@ -794,6 +805,7 @@ def render_section(section: Dict[str, Any], playbook_name: str, completed_map: d
     with st.expander("Expand section", expanded=False):
         render_section_content(section, playbook_name, completed_map, comments_map, autosave, sec_key)
 
+# === PDF GENERATION – FIXED ===
 @st.cache_data(ttl=300)
 def generate_pdf_bytes(sections: List[Dict[str, Any]], playbook_name: str) -> bytes:
     try:
@@ -805,6 +817,7 @@ def generate_pdf_bytes(sections: List[Dict[str, Any]], playbook_name: str) -> by
         pdf.set_font("Arial", size=10)
         pdf.cell(0, 8, txt=clean_for_pdf(f"Playbook: {playbook_name}"), ln=1)
         pdf.ln(4)
+
         def add_section(pdf, section, indent=0):
             pdf.set_font("Arial", "B", 8)
             pdf.multi_cell(180, 6, clean_for_pdf("  " * indent + section["title"]), 0, 'L')
@@ -821,14 +834,16 @@ def generate_pdf_bytes(sections: List[Dict[str, Any]], playbook_name: str) -> by
             for sub in section.get("subs", []):
                 add_section(pdf, sub, indent + 2)
             pdf.ln(2)
+
         for s in sections:
             add_section(pdf, s)
-        return pdf.output(dest='S').encode('latin-1')
+
+        return pdf.output(dest='S')  # Returns bytes directly
     except Exception as e:
         st.error(f"PDF generation failed: {str(e)}")
         return b""
 
-# === FULL-TEXT SEARCH (WORKS ACROSS ALL PLAYBOOKS) ===
+# === FULL-TEXT SEARCH ===
 @st.cache_data(ttl=600)
 def simple_search(query: str, playbooks_list: List[str], top_k: int = 12):
     results = []
@@ -900,7 +915,7 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # === SEARCH ===
+    # === SEARCH UI ===
     st.sidebar.markdown('<div class="sidebar-header">Search Playbooks</div>', unsafe_allow_html=True)
     query = st.sidebar.text_input("Search", key="search_query", placeholder="type keyword…")
     search_btn = st.sidebar.button("Search", key="search_btn")
@@ -911,24 +926,29 @@ def main():
             st.sidebar.markdown("<h4 style='color:var(--joval-red);margin-top:12px;'>Results</h4>", unsafe_allow_html=True)
             for r in results:
                 clean_name = r["playbook"].replace(".docx", "").split(" v")[0]
-                fid = f"nav_{hashlib.md5(r['anchor'].encode()).hexdigest()[:8]}"
-                js = f"""
-                <script>
-                function {fid}() {{
-                    localStorage.setItem("select_playbook", "{r['playbook']}");
-                    const u = new URL(window.location);
-                    u.searchParams.set('anchor', '{r["anchor"]}');
-                    u.searchParams.set('highlight', '{query.strip()}');
-                    window.location.href = u.toString();
-                }}
-                </script>
-                <a onclick="{fid}()" class="search-result" style="display:block;padding:4px 0;cursor:pointer;">
-                    <strong>{clean_name}</strong><br>
-                    <small>{r["title"]}</small><br>
-                    <em style="color:#555;font-size:0.85rem;">{r["snippet"]}</em>
-                </a>
-                """
-                st.sidebar.markdown(js, unsafe_allow_html=True)
+                anchor = r["anchor"]
+
+                def make_nav(pb, anc, term):
+                    def nav():
+                        st.session_state.select_playbook = pb
+                        st.session_state.pending_anchor = anc
+                        st.session_state.pending_highlight = term
+                    return nav
+
+                st.sidebar.markdown(
+                    f"""
+                    <div style="padding:6px 0; border-bottom:1px solid #eee;">
+                        <strong>{clean_name}</strong><br>
+                        <a href="#" onclick="document.getElementById('nav_{hash(anchor)}').click(); return false;" style="color:#800020; text-decoration:underline; font-size:0.9rem;">
+                            {r['title']}
+                        </a><br>
+                        <em style="color:#666; font-size:0.8rem;">{r['snippet']}</em>
+                    </div>
+                    <div id="nav_{hash(anchor)}" style="display:none;"></div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                st.sidebar.button("", key=f"navbtn_{anchor}", on_click=make_nav(r["playbook"], anchor, query.strip()))
         else:
             st.sidebar.info("No matches found.")
     else:
@@ -954,7 +974,12 @@ def main():
     st.sidebar.markdown('<div style="color: var(--text); font-weight: bold; font-size: 1.1rem;">Better Never Stops</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="playbook-select-label">Select playbook</div>', unsafe_allow_html=True)
-    selected_playbook = st.selectbox("Select playbook", playbooks, index=0, key="select_playbook")
+    selected_playbook = st.selectbox(
+        "Select playbook",
+        playbooks,
+        index=playbooks.index(st.session_state.select_playbook) if "select_playbook" in st.session_state and st.session_state.select_playbook in playbooks else 0,
+        key="select_playbook"
+    )
     st.markdown('<div class="instructional-text">In the event of a cyber incident select the required playbook and complete each required step in the NIST "Incident Handling Categories" section</div>', unsafe_allow_html=True)
 
     # === LOAD PLAYBOOK ===
@@ -973,6 +998,24 @@ def main():
     completed_map = st.session_state[f"completed::{selected_playbook}"]
     comments_map = st.session_state[f"comments::{selected_playbook}"]
 
+    # === HANDLE PENDING NAVIGATION FROM SEARCH ===
+    if "pending_anchor" in st.session_state:
+        anchor_id = st.session_state.pending_anchor
+        highlight_term = st.session_state.get("pending_highlight", "")
+        
+        js = f"""
+        setTimeout(() => {{
+            expandSection('{anchor_id}');
+            scrollToSection('{anchor_id}');
+            {f"highlightText('{anchor_id}', '{highlight_term}');" if highlight_term else ""}
+        }}, 300);
+        """
+        st.markdown(f"<script>{js}</script>", unsafe_allow_html=True)
+        
+        del st.session_state.pending_anchor
+        if "pending_highlight" in st.session_state:
+            del st.session_state.pending_highlight
+
     # === TOC ===
     toc_items = []
     def walk_toc(secs):
@@ -988,21 +1031,6 @@ def main():
         for t in toc_items
     ) + "</div>"
     st.markdown(toc_html, unsafe_allow_html=True)
-
-    # === AUTO-SCROLL + HIGHLIGHT ===
-    qs = st.experimental_get_query_params()
-    anchor_id = qs.get("anchor", [None])[0]
-    highlight_term = qs.get("highlight", [None])[0]
-
-    if anchor_id:
-        js_call = f"scrollToSection('{anchor_id}');"
-        if highlight_term:
-            js_call += f" highlightText('{anchor_id}', '{highlight_term}');"
-        st.markdown(
-            f"<script>window.onload = function() {{ {js_call} }};</script>",
-            unsafe_allow_html=True,
-        )
-        st.experimental_set_query_params()
 
     st.markdown('<div class="content-wrap">', unsafe_allow_html=True)
     for sec in sections:
