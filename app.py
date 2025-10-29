@@ -36,6 +36,9 @@ USERS_FILE = "users.json"
 Path(PLAYBOOKS_DIR).mkdir(exist_ok=True)
 Path(USERS_FILE).touch(exist_ok=True)
 
+# Official NIST logo - PNG version (CORS-safe, no upload needed)
+NIST_LOGO_URL = "https://www.nist.gov/sites/default/files/images/2020/06/18/nist_logo.png"
+
 # === PAGE CONFIG & MODERN UI ===
 st.set_page_config(
     page_title="Joval Wines NIST Playbook Tracker",
@@ -43,9 +46,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# Official NIST logo (hosted on NIST site)
-NIST_LOGO_URL = "https://www.nist.gov/themes/custom/nist_logo/logo.svg"
 
 st.markdown(f"""
 <style>
@@ -74,9 +74,14 @@ html,body,.stApp{{background:var(--bg)!important;color:var(--text)!important;fon
     border-bottom:1px solid var(--border);box-shadow:0 2px 8px rgba(0,0,0,.05);
     min-height:120px;
 }}
-.logo-left{{height:160px;width:auto;}}  /* Joval Logo */
+.logo-left{{height:160px;width:auto;}}
 .app-title{{font-size:2.4rem;font-weight:700;color:var(--text);margin:0;text-align:center;flex:1;}}
-.nist-logo img{{height:110px;width:auto;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.1));}}
+.nist-logo img{{
+    height:100px;
+    width:auto;
+    filter:drop-shadow(0 2px 4px rgba(0,0,0,0.1));
+    margin-left:20px;
+}}
 
 /* Sidebar */
 .css-1d391kg{{padding-top:1rem;}}
@@ -858,7 +863,7 @@ def main():
 
     show_feedback()
 
-    # === BOTTOM TOOLBAR (Fixed & Bold) ===
+    # === BOTTOM TOOLBAR ===
     st.markdown(f"""
     <div class="bottom-toolbar">
         <div>© Joval Wines – Better Never Stops</div>
