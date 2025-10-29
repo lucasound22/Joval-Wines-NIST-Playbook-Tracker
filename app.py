@@ -63,9 +63,9 @@ st.markdown(f"""
 
 /* Global */
 html,body,.stApp{{background:var(--bg)!important;color:var(--text)!important;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;}}
-.stApp > footer,.stApp [data-testid="stToolbar"],.stApp [data-testid="collapsedControl"],.stDeployButton{{display:none!important;}}
+.stApp > footer,.stApp [data-testid="stToolbar"],.stDeployButton{{display:none!important;}}
 
-/* Header - Logo | Title | NIST */
+/* Header */
 .sticky-header{{
     position:sticky;top:0;z-index:9999;
     display:flex;align-items:center;justify-content:space-between;
@@ -85,7 +85,7 @@ html,body,.stApp{{background:var(--bg)!important;color:var(--text)!important;fon
 }}
 .nist-text sup{{font-size:1.2rem;color:#555;}}
 
-/* Section Titles - ALL BOLD & LARGER */
+/* Section Titles - BOLD & LARGE */
 .section-title,
 .stExpander > div > div > div > label > div > span,
 .stExpander > div > div > div > label > div > div > span {{
@@ -100,11 +100,6 @@ html,body,.stApp{{background:var(--bg)!important;color:var(--text)!important;fon
     font-weight:700 !important;
 }}
 
-/* Sidebar */
-.css-1d391kg{{padding-top:1rem;}}
-.sidebar-header{{font-weight:600;font-size:1.1rem;margin-bottom:.5rem;}}
-.sidebar-subheader{{font-weight:600;margin-top:1rem;margin-bottom:.5rem;}}
-
 /* Content */
 .content-wrap{{margin-left:280px;padding:2rem 2rem 6rem;}}
 .section-card{{
@@ -113,13 +108,13 @@ html,body,.stApp{{background:var(--bg)!important;color:var(--text)!important;fon
     border:1px solid var(--border);
 }}
 
-/* Buttons - Compact */
+/* Buttons - Compact & Spaced */
 .stButton>button,.stDownloadButton>button{{
     background:#000!important;color:#fff!important;
-    border-radius:8px;padding:0.5rem 1.2rem!important;
-    font-weight:600;font-size:0.95rem;
-    width:auto!important;min-width:140px;
-    text-align:center;margin:0.3rem auto;display:block;
+    border-radius:8px;padding:0.6rem 1.4rem!important;
+    font-weight:600;font-size:1rem;
+    width:100%!important;min-height:48px;
+    text-align:center;margin:0.5rem 0;
 }}
 .stButton>button:hover,.stDownloadButton>button:hover{{opacity:.9;}}
 
@@ -140,7 +135,7 @@ html,body,.stApp{{background:var(--bg)!important;color:var(--text)!important;fon
 @media (max-width:768px){{
     .sticky-header{{flex-direction:column;padding:1rem;min-height:auto;}}
     .app-title{{font-size:1.8rem;}}
-    .logo-left,.nist-text{{font-size:2.2rem;}}
+    .nist-text{{font-size:2.2rem;}}
     .content-wrap{{margin-left:0;padding:1rem;}}
     .section-title,.nist-incident-section{{font-size:1.6rem !important;}}
 }}
@@ -531,33 +526,6 @@ def export_to_csv(completed_map: Dict, comments_map: Dict, selected_playbook: st
     })
     return df.to_csv(index=False).encode('utf-8')
 
-def create_jira_ticket(summary: str, description: str):
-    try:
-        import requests
-        jira_url = st.secrets["JIRA_URL"]
-        email = st.secrets["JIRA_EMAIL"]
-        token = st.secrets["JIRA_TOKEN"]
-        project_key = st.secrets["JIRA_PROJECT_KEY"]
-        auth = base64.b64encode(f"{email}:{token}".encode()).decode()
-        headers = {"Authorization": f"Basic {auth}", "Content-Type": "application/json"}
-        data = json.dumps({
-            "fields": {
-                "project": {"key": project_key},
-                "summary": summary,
-                "description": description,
-                "issuetype": {"name": "Task"}
-            }
-        })
-        response = requests.post(jira_url, headers=headers, data=data)
-        if response.status_code == 201:
-            ticket_key = response.json()["key"]
-            st.success(f"Jira ticket created: {ticket_key}")
-            logging.info(f"Jira ticket created: {ticket_key}")
-        else:
-            st.error(f"Failed to create Jira ticket: {response.text}")
-    except Exception as e:
-        st.error(f"Jira integration error: {e}")
-
 # === PLAYBOOK PARSING ===
 @st.cache_data(hash_funcs={Path: lambda p: str(p)})
 def parse_playbook_cached(path: str) -> List[Dict[str, Any]]:
@@ -700,13 +668,18 @@ def render_action_table(playbook_name, sec_key, rows, completed_map, comments_ma
         owner = row[-1]
         prev_val = completed_map.get(row_key, False)
         prev_comment = comments_map.get(comment_key, "")
+
+        # UNIQUE KEYS TO PREVENT COLLAPSE
+        cb_key = f"cb_{playbook_name}_{sec_key}_{table_index}_{ridx}"
+        ci_key = f"ci_{playbook_name}_{sec_key}_{table_index}_{ridx}"
+
         cols = st.columns([1, 2, 4, 2, 1, 2])
         cols[0].write(ref)
         cols[1].write(step)
         cols[2].write(desc)
         cols[3].write(owner)
-        new_val = cols[4].checkbox("", value=prev_val, key=f"cb_{row_key}")
-        new_comment = cols[5].text_input("", value=prev_comment, key=f"ci_{comment_key}", label_visibility="collapsed")
+        new_val = cols[4].checkbox("", value=prev_val, key=cb_key)
+        new_comment = cols[5].text_input("", value=prev_comment, key=ci_key, label_visibility="collapsed")
         if new_val != prev_val:
             completed_map[row_key] = new_val
             changed = True
@@ -747,7 +720,8 @@ def render_section_content(section, playbook_name, completed_map, comments_map, 
     if not is_sub:
         st.markdown("<div style='font-weight:700;margin-top:12px;margin-bottom:6px;'>Comments / Notes</div>", unsafe_allow_html=True)
         prev_sec_comment = comments_map.get(sec_key, "")
-        new_sec_comment = st.text_area("", value=prev_sec_comment, key=f"c::{sec_key}", height=120, label_visibility="collapsed")
+        sec_comment_key = f"sec_comment_{playbook_name}_{sec_key}"
+        new_sec_comment = st.text_area("", value=prev_sec_comment, key=sec_comment_key, height=120, label_visibility="collapsed")
         if new_sec_comment != prev_sec_comment:
             comments_map[sec_key] = new_sec_comment
             if autosave:
@@ -895,32 +869,27 @@ def main():
 
     st.markdown(f"<div class='progress-wrap'><div class='progress-fill' style='width:{pct}%'></div></div>", unsafe_allow_html=True)
 
-    if st.button("Refresh"):
-        st.rerun()
-
-    # === ACTION BUTTONS ===
-    c1, c2, c3 = st.columns(3)
-    with c1:
+    # === ACTION BUTTONS - CLEAN & SPACED ===
+    st.markdown("### Actions")
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
         if st.button("Save Progress"):
             path = save_progress(selected_playbook, completed_map, comments_map)
             st.success(f"Saved to `{os.path.basename(path)}`")
-        if st.button("Create Jira Ticket"):
-            summary = st.text_input("Ticket Summary", "Incident Response Progress")
-            desc = f"Progress: {pct}% for {selected_playbook}"
-            if st.button("Confirm"):
-                create_jira_ticket(summary, desc)
-    with c2:
-        csv_data = export_to_csv(completed_map, comments_map, selected_playbook)
-        st.download_button("Download CSV", csv_data,
+        st.download_button("Download CSV", 
+                           export_to_csv(completed_map, comments_map, selected_playbook),
                            f"{os.path.splitext(selected_playbook)[0]}_progress.csv",
                            "text/csv")
+    with col_b:
+        if st.button("Refresh"):
+            st.rerun()
         if OPENPYXL_AVAILABLE:
-            excel_data = export_to_excel(completed_map, comments_map, selected_playbook, bulk_export)
-            st.download_button("Download Excel", excel_data,
+            st.download_button("Download Excel", 
+                               export_to_excel(completed_map, comments_map, selected_playbook, bulk_export),
                                f"{os.path.splitext(selected_playbook)[0]}_progress.xlsx",
                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    with c3:
-        pass
+    with col_c:
+        pass  # Empty for spacing
 
     if autosave:
         save_progress(selected_playbook, completed_map, comments_map)
