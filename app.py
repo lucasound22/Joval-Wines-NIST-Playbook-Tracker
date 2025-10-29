@@ -878,7 +878,67 @@ def main():
     task_counter["total"] = 0
     task_counter["done"] = 0
 
-    # === RENDER CONTENT ===
+    # === TOC WITH SEARCH ===
+    toc_items = []
+    def collect_toc(secs):
+        for s in secs:
+            key = stable_key(selected_playbook, s["title"], s["level"])
+            toc_items.append({"title": s["title"], "anchor": key})
+            if s.get("subs"):
+                collect_toc(s["subs"])
+    collect_toc(sections)
+
+    search_term = st.text_input("Search sections...", key="toc_search", label_visibility="collapsed")
+    filtered_toc = [
+        item for item in toc_items
+        if search_term.lower() in item["title"].lower()
+    ] if search_term else toc_items
+
+    toc_links = "".join(
+        f'<a href="#{item["anchor"]}" class="toc-item" onclick="document.getElementById(\'{item["anchor"]}\').scrollIntoView();return false;">{item["title"]}</a>'
+        for item in filtered_toc
+    )
+    toc_html = f"""
+    <div style="position:fixed;left:1rem;top:110px;bottom:100px;width:250px;background:#fff;padding:1rem;border-radius:8px;overflow:auto;box-shadow:0 2px 6px rgba(0,0,0,.04);border:1px solid #eaeaea;">
+        <div class="toc-search"><input type="text" placeholder="Search sections..." value="{search_term}" /></div>
+        <h4 style="margin:0.5rem 0 0.75rem 0;">Table of Contents</h4>
+        <div style="max-height:calc(100% - 80px);overflow-y:auto;">
+            {toc_links if toc_links else '<em>No matches</em>'}
+        </div>
+    </div>
+    """
+    st.markdown(toc_html, unsafe_allow_html=True)
+
+    # === EXPAND / COLLAPSE ALL BUTTONS (REINSTATED) ===
+    st.markdown("<div style='text-align:center;margin:1.5rem 0;'>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 1, 3])
+    with col1:
+        if st.button("Expand All", key="expand_all"):
+            for sec in sections:
+                key = stable_key(selected_playbook, sec["title"], sec["level"])
+                save_expander_state(selected_playbook, key, True)
+                st.session_state[get_expander_state_key(selected_playbook, key)] = True
+                for sub in sec.get("subs", []):
+                    sub_key = stable_key(selected_playbook, sub["title"], sub["level"])
+                    save_expander_state(selected_playbook, sub_key, True)
+                    st.session_state[get_expander_state_key(selected_playbook, sub_key)] = True
+            st.success("All sections expanded!")
+            st.rerun()
+    with col2:
+        if st.button("Collapse All", key="collapse_all"):
+            for sec in sections:
+                key = stable_key(selected_playbook, sec["title"], sec["level"])
+                save_expander_state(selected_playbook, key, False)
+                st.session_state[get_expander_state_key(selected_playbook, key)] = False
+                for sub in sec.get("subs", []):
+                    sub_key = stable_key(selected_playbook, sub["title"], sub["level"])
+                    save_expander_state(selected_playbook, sub_key, False)
+                    st.session_state[get_expander_state_key(selected_playbook, sub_key)] = False
+            st.success("All sections collapsed!")
+            st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # === CONTENT ===
     st.markdown('<div class="content-wrap">', unsafe_allow_html=True)
     for sec in sections:
         render_section(sec, selected_playbook, completed_map, comments_map, autosave, expander_states)
