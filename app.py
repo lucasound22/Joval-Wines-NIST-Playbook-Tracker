@@ -757,15 +757,16 @@ def get_expander_state_key(playbook_name: str, sec_key: str) -> str:
 
 def load_expander_states(playbook_name: str, sections: List[Dict]) -> Dict[str, bool]:
     _, _, saved_states = load_progress(playbook_name)
-    default = {}
+    states = {}
     for sec in sections:
         key = stable_key(playbook_name, sec["title"], sec["level"])
-        is_nist = sec["title"] == "NIST Incident Handling Categories"
-        default[key] = saved_states.get(get_expander_state_key(playbook_name, key), is_nist)
+        state_key = get_expander_state_key(playbook_name, key)
+        states[key] = saved_states.get(state_key, False)
         for sub in sec.get("subs", []):
             sub_key = stable_key(playbook_name, sub["title"], sub["level"])
-            default[sub_key] = saved_states.get(get_expander_state_key(playbook_name, sub_key), False)
-    return default
+            sub_state_key = get_expander_state_key(playbook_name, sub_key)
+            states[sub_key] = saved_states.get(sub_state_key, False)
+    return states
 
 def save_expander_state(playbook_name: str, sec_key: str, state: bool):
     completed, comments, expanders = load_progress(playbook_name)
@@ -778,12 +779,18 @@ def render_section(section, playbook_name, completed_map, comments_map, autosave
     st.markdown(f"<div class='{title_class}' id='{sec_key}'>{section['title']}</div>", unsafe_allow_html=True)
     
     state_key = get_expander_state_key(playbook_name, sec_key)
-    default_open = expander_states.get(sec_key, False)
     
-    with st.expander("Expand section", expanded=default_open, key=state_key):
-        # FIXED: Use .get() to avoid KeyError
-        current_state = st.session_state.get(state_key, default_open)
-        if current_state != default_open:
+    # Initialize state if not exists
+    if state_key not in st.session_state:
+        is_nist = section["title"] == "NIST Incident Handling Categories"
+        st.session_state[state_key] = is_nist  # Default: NIST open, others closed
+    
+    # Use session_state for expanded
+    with st.expander("Expand section", expanded=st.session_state[state_key]):
+        # Detect change
+        current_state = st.session_state[state_key]
+        saved_state = expander_states.get(sec_key, False)
+        if current_state != saved_state:
             save_expander_state(playbook_name, sec_key, current_state)
             expander_states[sec_key] = current_state
         
