@@ -16,11 +16,10 @@ from bs4 import BeautifulSoup
 import pandas as pd
 
 try:
-import openpyxl
-OPENPYXL_AVAILABLE = True
+    import openpyxl
+    OPENPYXL_AVAILABLE = True
 except ImportError:
-OPENPYXL_AVAILABLE = False
-
+    OPENPYXL_AVAILABLE = False
 import logging
 
 # === CONFIGURATION ===
