@@ -20,6 +20,7 @@ try:
     OPENPYXL_AVAILABLE = True
 except ImportError:
     OPENPYXL_AVAILABLE = False
+
 import logging
 
 # === CONFIGURATION ===
@@ -99,6 +100,28 @@ html,body,.stApp{{background:var(--bg)!important;color:var(--text)!important;fon
     font-weight:700 !important;
 }}
 
+/* TOC Search */
+.toc-search input {{
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+}}
+.toc-item {{display:block;padding:4px 0;color:#111;text-decoration:none;}}
+.toc-item:hover {{color:var(--red);font-weight:600;}}
+
+/* Expand/Collapse Button */
+.expand-all-btn button {{
+    background: #000 !important;
+    color: #fff !important;
+    border-radius: 8px;
+    padding: 0.5rem 1rem !important;
+    font-weight: 600;
+    font-size: 0.9rem;
+}}
+
 /* Content */
 .content-wrap{{margin-left:280px;padding:2rem 2rem 6rem;}}
 .section-card{{
@@ -107,7 +130,7 @@ html,body,.stApp{{background:var(--bg)!important;color:var(--text)!important;fon
     border:1px solid var(--border);
 }}
 
-/* Buttons - Spaced & Tall */
+/* Buttons */
 .stButton>button,.stDownloadButton>button{{
     background:#000!important;color:#fff!important;
     border-radius:8px;padding:0.75rem 1.5rem!important;
@@ -410,18 +433,23 @@ def load_progress(playbook_name: str):
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
-                return data.get("completed", {}), data.get("comments", {})
+                return (
+                    data.get("completed", {}),
+                    data.get("comments", {}),
+                    data.get("expanders", {})
+                )
         except Exception:
-            return {}, {}
-    return {}, {}
+            return {}, {}, {}
+    return {}, {}, {}
 
-def save_progress(playbook_name: str, completed_map: dict, comments_map: dict) -> str:
+def save_progress(playbook_name: str, completed_map: dict, comments_map: dict, expanders_map: dict) -> str:
     rec = {
         "playbook": playbook_name,
         "timestamp": datetime.now().isoformat(),
         "version": "1.0",
         "completed": completed_map,
         "comments": comments_map,
+        "expanders": expanders_map
     }
     path = progress_filepath(playbook_name)
     with open(path, "w", encoding="utf-8") as fh:
@@ -668,7 +696,6 @@ def render_action_table(playbook_name, sec_key, rows, completed_map, comments_ma
         prev_val = completed_map.get(row_key, False)
         prev_comment = comments_map.get(comment_key, "")
 
-        # UNIQUE KEYS - PREVENTS COLLAPSE & 100% BUG
         cb_key = f"cb_{playbook_name}_{sec_key}_{table_index}_{ridx}"
         ci_key = f"ci_{playbook_name}_{sec_key}_{table_index}_{ridx}"
 
@@ -688,7 +715,7 @@ def render_action_table(playbook_name, sec_key, rows, completed_map, comments_ma
             changed = True
 
     if autosave and changed:
-        save_progress(playbook_name, completed_map, comments_map)
+        save_progress(playbook_name, completed_map, comments_map, st.session_state.get("expanders", {}))
 
 def render_generic_table(rows: List[List[str]]):
     if len(rows) > 1:
@@ -726,13 +753,43 @@ def render_section_content(section, playbook_name, completed_map, comments_map, 
         if new_sec_comment != prev_sec_comment:
             comments_map[sec_key] = new_sec_comment
             if autosave:
-                save_progress(playbook_name, completed_map, comments_map)
+                save_progress(playbook_name, completed_map, comments_map, st.session_state.get("expanders", {}))
 
-def render_section(section, playbook_name, completed_map, comments_map, autosave):
+def get_expander_state_key(playbook_name: str, sec_key: str) -> str:
+    return f"exp_{playbook_name}_{sec_key}"
+
+def load_expander_states(playbook_name: str, sections: List[Dict]) -> Dict[str, bool]:
+    _, _, saved_states = load_progress(playbook_name)
+    default = {}
+    for sec in sections:
+        key = stable_key(playbook_name, sec["title"], sec["level"])
+        is_nist = sec["title"] == "NIST Incident Handling Categories"
+        default[key] = saved_states.get(get_expander_state_key(playbook_name, key), is_nist)
+        for sub in sec.get("subs", []):
+            sub_key = stable_key(playbook_name, sub["title"], sub["level"])
+            default[sub_key] = saved_states.get(get_expander_state_key(playbook_name, sub_key), False)
+    return default
+
+def save_expander_state(playbook_name: str, sec_key: str, state: bool):
+    completed, comments, expanders = load_progress(playbook_name)
+    expanders[get_expander_state_key(playbook_name, sec_key)] = state
+    save_progress(playbook_name, completed, comments, expanders)
+
+def render_section(section, playbook_name, completed_map, comments_map, autosave, expander_states):
     sec_key = stable_key(playbook_name, section["title"], section["level"])
     title_class = "nist-incident-section" if section["title"] == "NIST Incident Handling Categories" else "section-title"
     st.markdown(f"<div class='{title_class}' id='{sec_key}'>{section['title']}</div>", unsafe_allow_html=True)
-    with st.expander("Expand section", expanded=True):  # DEFAULT OPEN
+    
+    state_key = get_expander_state_key(playbook_name, sec_key)
+    default_open = expander_states.get(sec_key, False)
+    
+    with st.expander("Expand section", expanded=default_open, key=state_key):
+        new_state = st.session_state[state_key]
+        if new_state != default_open:
+            save_expander_state(playbook_name, sec_key, new_state)
+            expander_states[sec_key] = new_state
+            st.rerun()
+        
         render_section_content(section, playbook_name, completed_map, comments_map, autosave, sec_key)
 
 # === MAIN APP ===
@@ -822,34 +879,77 @@ def main():
         st.session_state[parsed_key] = parse_playbook_cached(os.path.join(PLAYBOOKS_DIR, selected_playbook))
     sections = st.session_state[parsed_key]
 
-    completed_map, comments_map = load_progress(selected_playbook)
+    completed_map, comments_map, _ = load_progress(selected_playbook)
+    expander_states = load_expander_states(selected_playbook, sections)
+
     st.session_state[f"completed::{selected_playbook}"] = completed_map
     st.session_state[f"comments::{selected_playbook}"] = comments_map
-    completed_map = st.session_state[f"completed::{selected_playbook}"]
-    comments_map = st.session_state[f"comments::{selected_playbook}"]
+    st.session_state["expanders"] = expander_states
 
-    # === TOC ===
+    # === TOC WITH SEARCH ===
     toc_items = []
-    def walk_toc(secs):
+    def collect_toc(secs):
         for s in secs:
-            anchor = stable_key(selected_playbook, s["title"], s["level"])
-            toc_items.append({"title": s["title"], "anchor": anchor})
-            if s.get("subs"): walk_toc(s["subs"])
-    walk_toc(sections)
+            key = stable_key(selected_playbook, s["title"], s["level"])
+            toc_items.append({"title": s["title"], "anchor": key})
+            if s.get("subs"):
+                collect_toc(s["subs"])
+    collect_toc(sections)
 
-    toc_html = "<div style='position:fixed;left:1rem;top:110px;bottom:100px;width:250px;background:#fff;padding:1rem;border-radius:8px;overflow:auto;box-shadow:0 2px 6px rgba(0,0,0,.04);border:1px solid #eaeaea;'><h4 style='margin-top:0;'>Table of Contents</h4>" + "".join(
-        f"<a href='#' onclick=\"document.getElementById('{a['anchor']}').scrollIntoView({{behavior:'smooth'}});return false;\" style='display:block;padding:4px 0;color:#111;text-decoration:none;'>{a['title']}</a>"
-        for a in toc_items
-    ) + "</div>"
+    search_term = st.text_input("Search sections...", key="toc_search", label_visibility="collapsed")
+    filtered_toc = [
+        item for item in toc_items
+        if search_term.lower() in item["title"].lower()
+    ] if search_term else toc_items
+
+    toc_links = "".join(
+        f'<a href="#{item["anchor"]}" class="toc-item" onclick="document.getElementById(\'{item["anchor"]}\').scrollIntoView();return false;">{item["title"]}</a>'
+        for item in filtered_toc
+    )
+    toc_html = f"""
+    <div style="position:fixed;left:1rem;top:110px;bottom:100px;width:250px;background:#fff;padding:1rem;border-radius:8px;overflow:auto;box-shadow:0 2px 6px rgba(0,0,0,.04);border:1px solid #eaeaea;">
+        <div class="toc-search"><input type="text" placeholder="Search sections..." value="{search_term}" /></div>
+        <h4 style="margin:0.5rem 0 0.75rem 0;">Table of Contents</h4>
+        <div style="max-height:calc(100% - 80px);overflow-y:auto;">
+            {toc_links if toc_links else '<em>No matches</em>'}
+        </div>
+    </div>
+    """
     st.markdown(toc_html, unsafe_allow_html=True)
+
+    # === EXPAND/COLLAPSE ALL BUTTONS ===
+    col_expand, _ = st.columns([1, 4])
+    with col_expand:
+        if st.button("Expand All", key="expand_all"):
+            for sec in sections:
+                key = stable_key(selected_playbook, sec["title"], sec["level"])
+                save_expander_state(selected_playbook, key, True)
+                expander_states[key] = True
+                for sub in sec.get("subs", []):
+                    sub_key = stable_key(selected_playbook, sub["title"], sub["level"])
+                    save_expander_state(selected_playbook, sub_key, True)
+                    expander_states[sub_key] = True
+            st.rerun()
+    with col_expand:
+        if st.button("Collapse All", key="collapse_all"):
+            for sec in sections:
+                key = stable_key(selected_playbook, sec["title"], sec["level"])
+                is_nist = sec["title"] == "NIST Incident Handling Categories"
+                save_expander_state(selected_playbook, key, is_nist)
+                expander_states[key] = is_nist
+                for sub in sec.get("subs", []):
+                    sub_key = stable_key(selected_playbook, sub["title"], sub["level"])
+                    save_expander_state(selected_playbook, sub_key, False)
+                    expander_states[sub_key] = False
+            st.rerun()
 
     # === CONTENT ===
     st.markdown('<div class="content-wrap">', unsafe_allow_html=True)
     for sec in sections:
-        render_section(sec, selected_playbook, completed_map, comments_map, autosave)
+        render_section(sec, selected_playbook, completed_map, comments_map, autosave, expander_states)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # === PROGRESS - ONLY COUNT REAL TASKS ===
+    # === PROGRESS ===
     task_keys = [k for k in completed_map.keys() if "::row::" in k]
     done_tasks = sum(1 for k in task_keys if completed_map[k])
     total_tasks = len(task_keys)
@@ -876,8 +976,8 @@ def main():
     col_a, col_b, col_c = st.columns(3)
     with col_a:
         if st.button("Save Progress"):
-            path = save_progress(selected_playbook, completed_map, comments_map)
-            st.success(f"Saved to `{os.path.basename(path)}`")
+            save_progress(selected_playbook, completed_map, comments_map, expander_states)
+            st.success("Progress & expander states saved!")
         st.download_button("Download CSV", 
                            export_to_csv(completed_map, comments_map, selected_playbook),
                            f"{os.path.splitext(selected_playbook)[0]}_progress.csv",
@@ -894,7 +994,7 @@ def main():
         pass
 
     if autosave:
-        save_progress(selected_playbook, completed_map, comments_map)
+        save_progress(selected_playbook, completed_map, comments_map, expander_states)
 
     show_feedback()
 
