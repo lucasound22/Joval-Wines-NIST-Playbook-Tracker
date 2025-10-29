@@ -36,9 +36,6 @@ USERS_FILE = "users.json"
 Path(PLAYBOOKS_DIR).mkdir(exist_ok=True)
 Path(USERS_FILE).touch(exist_ok=True)
 
-# Official NIST logo - PNG version (CORS-safe, no upload needed)
-NIST_LOGO_URL = "https://www.nist.gov/sites/default/files/images/2020/06/18/nist_logo.png"
-
 # === PAGE CONFIG & MODERN UI ===
 st.set_page_config(
     page_title="Joval Wines NIST Playbook Tracker",
@@ -58,6 +55,7 @@ st.markdown(f"""
     --text:#111111;
     --muted:#666666;
     --red:#800020;
+    --gold:#FFD700;
     --card-bg:#fafafa;
     --border:#eaeaea;
 }}
@@ -76,58 +74,15 @@ html,body,.stApp{{background:var(--bg)!important;color:var(--text)!important;fon
 }}
 .logo-left{{height:160px;width:auto;}}
 .app-title{{font-size:2.4rem;font-weight:700;color:var(--text);margin:0;text-align:center;flex:1;}}
-.nist-logo img{{
-    height:100px;
-    width:auto;
-    filter:drop-shadow(0 2px 4px rgba(0,0,0,0.1));
-    margin-left:20px;
+.nist-text{{
+    font-size:2.8rem;
+    font-weight:900;
+    color:#000;
+    text-shadow: 2px 2px 4px var(--gold), 0 0 8px rgba(255,215,0,0.4);
+    letter-spacing:1px;
+    margin-right:8px;
 }}
-
-/* Sidebar */
-.css-1d391kg{{padding-top:1rem;}}
-.sidebar-header{{font-weight:600;font-size:1.1rem;margin-bottom:.5rem;}}
-.sidebar-subheader{{font-weight:600;margin-top:1rem;margin-bottom:.5rem;}}
-
-/* Content */
-.content-wrap{{margin-left:280px;padding:2rem 2rem 6rem;}}
-.section-card{{
-    background:var(--card-bg);padding:1.5rem;border-radius:12px;
-    margin-bottom:1.5rem;box-shadow:0 2px 6px rgba(0,0,0,.04);
-    border:1px solid var(--border);
-}}
-.section-title{{font-size:1.7rem;font-weight:700;margin-bottom:.75rem;color:var(--text);}}
-.nist-incident-section{{color:var(--red)!important;}}
-
-/* Buttons - Compact */
-.stButton>button,.stDownloadButton>button{{
-    background:#000!important;color:#fff!important;
-    border-radius:8px;padding:0.5rem 1.2rem!important;
-    font-weight:600;font-size:0.95rem;
-    width:auto!important;min-width:140px;
-    text-align:center;margin:0.3rem auto;display:block;
-}}
-.stButton>button:hover,.stDownloadButton>button:hover{{opacity:.9;}}
-
-/* Progress */
-.progress-wrap{{height:12px;background:#e5e5e5;border-radius:999px;overflow:hidden;margin:1rem 0;}}
-.progress-fill{{height:100%;background:var(--red);transition:width .4s ease;}}
-
-/* Bottom Toolbar */
-.bottom-toolbar{{
-    position:fixed;bottom:0;left:0;right:0;z-index:999;
-    background:#fff;border-top:1px solid var(--border);
-    padding:.75rem 2rem;display:flex;align-items:center;justify-content:space-between;
-    box-shadow:0 -2px 8px rgba(0,0,0,.03);
-    font-size:1.1rem;font-weight:700;
-}}
-
-/* Responsive */
-@media (max-width:768px){{
-    .sticky-header{{flex-direction:column;padding:1rem;min-height:auto;}}
-    .app-title{{font-size:1.8rem;}}
-    .logo-left,.nist-logo img{{height:100px;}}
-    .content-wrap{{margin-left:0;padding:1rem;}}
-}}
+.nist-text sup{{font-size:1.2rem;color:#555;}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -192,6 +147,22 @@ def delete_user(email):
         return True, "User deleted successfully."
     return False, "User not found."
 
+def update_user(old_email, new_email, new_role):
+    users = load_users()
+    old_email = old_email.lower()
+    new_email = new_email.lower()
+    if old_email not in users:
+        return False, "User not found."
+    if new_email != old_email and new_email in users:
+        return False, "New email already exists."
+    
+    user_data = users.pop(old_email)
+    user_data["role"] = new_role
+    users[new_email] = user_data
+    save_users(users)
+    logging.info(f"User updated: {old_email} → {new_email}, Role: {new_role}")
+    return True, "User updated successfully."
+
 def authenticate():
     if 'login_attempts' not in st.session_state:
         st.session_state.login_attempts = 0
@@ -254,13 +225,16 @@ def admin_dashboard(user):
         return
 
     st.title("Admin Dashboard")
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Create User", "Reset Password", "List Users", "Delete User", "Upload Logo/Playbook"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Create User", "Reset Password", "List & Edit Users", "Delete User", "Upload Logo/Playbook"])
+
+    users = load_users()
+    user_emails = sorted(users.keys())
 
     with tab1:
         st.subheader("Create New User")
         email_input = st.text_input("User Email")
         email = email_input if "@" in email_input else email_input + "@joval.com"
-        role = st.selectbox("Role", ["user", "admin"])
+        role = st.selectbox("Role", ["user", "admin"], key="create_role")
         generate_pass = st.checkbox("Generate Random Password", value=True)
         if generate_pass:
             password = secrets.token_urlsafe(16)
@@ -280,45 +254,70 @@ def admin_dashboard(user):
 
     with tab2:
         st.subheader("Reset User Password")
-        email_input = st.text_input("User Email to Reset")
-        email = email_input if "@" in email_input else email_input + "@joval.com"
-        generate_pass = st.checkbox("Generate Random Password", value=True, key="reset_gen")
-        if generate_pass:
-            password = secrets.token_urlsafe(16)
+        if not user_emails:
+            st.info("No users to reset.")
         else:
-            password = st.text_input("Set New Password", type="password", key="reset_custom")
-        if st.button("Reset Password"):
-            if email and password:
-                success, msg, new_pass = reset_user_password(email, password)
-                if success:
-                    st.success(msg)
-                    if generate_pass:
-                        st.code(new_pass, language=None)
-                        st.info("New password shown above — copy it now.")
-                else:
-                    st.error(msg)
+            selected_user = st.selectbox("Select User", user_emails, key="reset_select")
+            generate_pass = st.checkbox("Generate Random Password", value=True, key="reset_gen2")
+            if generate_pass:
+                password = secrets.token_urlsafe(16)
+                st.code(password, language=None)
             else:
-                st.error("Enter email and password.")
+                password = st.text_input("Set New Password", type="password", key="reset_custom2")
+            if st.button("Reset Password"):
+                if password:
+                    success, msg, new_pass = reset_user_password(selected_user, password)
+                    if success:
+                        st.success(msg)
+                        if generate_pass:
+                            st.code(new_pass, language=None)
+                            st.info("New password shown above — copy it now.")
+                    else:
+                        st.error(msg)
+                else:
+                    st.error("Enter a password.")
 
     with tab3:
-        st.subheader("List Users")
-        users = load_users()
-        user_list = [{"Email": k, "Role": v["role"]} for k, v in users.items()]
-        st.table(pd.DataFrame(user_list))
+        st.subheader("List & Edit Users")
+        if not users:
+            st.info("No users.")
+        else:
+            user_list = [{"Email": k, "Role": v["role"]} for k, v in users.items()]
+            df = pd.DataFrame(user_list)
+            st.table(df)
+
+            st.markdown("---")
+            st.markdown("### Edit User")
+            edit_email = st.selectbox("Select User to Edit", user_emails, key="edit_select")
+            current_role = users[edit_email]["role"]
+            new_email_input = st.text_input("New Email (leave blank to keep)", value=edit_email, key="edit_email")
+            new_role = st.selectbox("New Role", ["user", "admin"], index=0 if current_role == "user" else 1, key="edit_role")
+
+            if st.button("Update User"):
+                new_email = new_email_input if new_email_input else edit_email
+                if new_email != edit_email or new_role != current_role:
+                    success, msg = update_user(edit_email, new_email, new_role)
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+                else:
+                    st.info("No changes made.")
 
     with tab4:
         st.subheader("Delete User")
-        email_input = st.text_input("User Email to Delete")
-        email = email_input if "@" in email_input else email_input + "@joval.com"
-        if st.button("Delete User"):
-            if email:
-                success, msg = delete_user(email)
+        if not user_emails:
+            st.info("No users to delete.")
+        else:
+            delete_email = st.selectbox("Select User to Delete", user_emails, key="delete_select")
+            if st.button("Delete User"):
+                success, msg = delete_user(delete_email)
                 if success:
                     st.success(msg)
+                    st.rerun()
                 else:
                     st.error(msg)
-            else:
-                st.error("Enter email.")
 
     with tab5:
         st.subheader("Upload Custom Logo")
@@ -437,6 +436,7 @@ def theme_selector():
         .sticky-header, .bottom-toolbar { background:rgba(0,0,0,0.95); border-color:var(--border); }
         .section-card { background:var(--card-bg); border-color:var(--border); }
         .progress-wrap { background:rgba(255,255,255,0.1); }
+        .nist-text { color:#fff; text-shadow: 2px 2px 4px #B8860B, 0 0 8px rgba(255,215,0,0.6); }
         </style>
         """, unsafe_allow_html=True)
     return theme
@@ -721,7 +721,9 @@ def main():
     <div class="sticky-header">
         {logo_html}
         <div class="app-title">Joval Wines NIST Playbook Tracker</div>
-        <div class="nist-logo"><img src="{NIST_LOGO_URL}" alt="Official NIST Logo" /></div>
+        <div style="display:flex;align-items:center;">
+            <span class="nist-text">NIST<sup>©</sup></span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -834,7 +836,7 @@ def main():
     if st.button("Refresh"):
         st.rerun()
 
-    # === ACTION BUTTONS (No Reset) ===
+    # === ACTION BUTTONS ===
     c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("Save Progress"):
