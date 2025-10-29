@@ -44,81 +44,85 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.markdown("""
+# Official NIST logo (hosted on NIST site)
+NIST_LOGO_URL = "https://www.nist.gov/themes/custom/nist_logo/logo.svg"
+
+st.markdown(f"""
 <style>
 /* Tailwind CDN */
 @import url('https://cdn.tailwindcss.com');
 
 /* Core Colors */
-:root{
+:root{{
     --bg:#ffffff;
     --text:#111111;
     --muted:#666666;
     --red:#800020;
     --card-bg:#fafafa;
     --border:#eaeaea;
-}
+}}
 
 /* Global */
-html,body,.stApp{background:var(--bg)!important;color:var(--text)!important;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;}
-.stApp > footer,.stApp [data-testid="stToolbar"],.stApp [data-testid="collapsedControl"],.stDeployButton{display:none!important;}
+html,body,.stApp{{background:var(--bg)!important;color:var(--text)!important;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;}}
+.stApp > footer,.stApp [data-testid="stToolbar"],.stApp [data-testid="collapsedControl"],.stDeployButton{{display:none!important;}}
 
 /* Header - Logo | Title | NIST */
-.sticky-header{
+.sticky-header{{
     position:sticky;top:0;z-index:9999;
     display:flex;align-items:center;justify-content:space-between;
     padding:1.2rem 2rem;background:#fff;
     border-bottom:1px solid var(--border);box-shadow:0 2px 8px rgba(0,0,0,.05);
-    min-height:100px;
-}
-.logo-left{height:140px;width:auto;}
-.app-title{font-size:2.4rem;font-weight:700;color:var(--text);margin:0;text-align:center;flex:1;}
-.nist-logo{font-size:2.2rem;color:var(--red);font-weight:700;height:140px;display:flex;align-items:center;}
+    min-height:120px;
+}}
+.logo-left{{height:160px;width:auto;}}  /* Joval Logo */
+.app-title{{font-size:2.4rem;font-weight:700;color:var(--text);margin:0;text-align:center;flex:1;}}
+.nist-logo img{{height:110px;width:auto;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.1));}}
 
 /* Sidebar */
-.css-1d391kg{padding-top:1rem;}
-.sidebar-header{font-weight:600;font-size:1.1rem;margin-bottom:.5rem;}
-.sidebar-subheader{font-weight:600;margin-top:1rem;margin-bottom:.5rem;}
+.css-1d391kg{{padding-top:1rem;}}
+.sidebar-header{{font-weight:600;font-size:1.1rem;margin-bottom:.5rem;}}
+.sidebar-subheader{{font-weight:600;margin-top:1rem;margin-bottom:.5rem;}}
 
 /* Content */
-.content-wrap{margin-left:280px;padding:2rem 2rem 6rem;}
-.section-card{
+.content-wrap{{margin-left:280px;padding:2rem 2rem 6rem;}}
+.section-card{{
     background:var(--card-bg);padding:1.5rem;border-radius:12px;
     margin-bottom:1.5rem;box-shadow:0 2px 6px rgba(0,0,0,.04);
     border:1px solid var(--border);
-}
-.section-title{font-size:1.7rem;font-weight:700;margin-bottom:.75rem;color:var(--text);}
-.nist-incident-section{color:var(--red)!important;}
+}}
+.section-title{{font-size:1.7rem;font-weight:700;margin-bottom:.75rem;color:var(--text);}}
+.nist-incident-section{{color:var(--red)!important;}}
 
-/* Buttons - Compact & Clean */
-.stButton>button,.stDownloadButton>button{
+/* Buttons - Compact */
+.stButton>button,.stDownloadButton>button{{
     background:#000!important;color:#fff!important;
     border-radius:8px;padding:0.5rem 1.2rem!important;
     font-weight:600;font-size:0.95rem;
     width:auto!important;min-width:140px;
     text-align:center;margin:0.3rem auto;display:block;
-}
-.stButton>button:hover,.stDownloadButton>button:hover{opacity:.9;}
+}}
+.stButton>button:hover,.stDownloadButton>button:hover{{opacity:.9;}}
 
 /* Progress */
-.progress-wrap{height:12px;background:#e5e5e5;border-radius:999px;overflow:hidden;margin:1rem 0;}
-.progress-fill{height:100%;background:var(--red);transition:width .4s ease;}
+.progress-wrap{{height:12px;background:#e5e5e5;border-radius:999px;overflow:hidden;margin:1rem 0;}}
+.progress-fill{{height:100%;background:var(--red);transition:width .4s ease;}}
 
 /* Bottom Toolbar */
-.bottom-toolbar{
+.bottom-toolbar{{
     position:fixed;bottom:0;left:0;right:0;z-index:999;
     background:#fff;border-top:1px solid var(--border);
     padding:.75rem 2rem;display:flex;align-items:center;justify-content:space-between;
     box-shadow:0 -2px 8px rgba(0,0,0,.03);
-}
+    font-size:1.1rem;font-weight:700;
+}}
 
 /* Responsive */
-@media (max-width:768px){
-    .sticky-header{flex-direction:column;padding:1rem;min-height:auto;}
-    .app-title{font-size:1.8rem;}
-    .logo-left,.nist-logo{height:100px;}
-    .content-wrap{margin-left:0;padding:1rem;}
-}
+@media (max-width:768px){{
+    .sticky-header{{flex-direction:column;padding:1rem;min-height:auto;}}
+    .app-title{{font-size:1.8rem;}}
+    .logo-left,.nist-logo img{{height:100px;}}
+    .content-wrap{{margin-left:0;padding:1rem;}}
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -364,20 +368,6 @@ def save_progress(playbook_name: str, completed_map: dict, comments_map: dict) -
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(rec, fh, indent=2)
     return path
-
-def reset_playbook_progress(playbook_name: str):
-    """Fully reset playbook progress — file + session state"""
-    path = progress_filepath(playbook_name)
-    if os.path.exists(path):
-        os.remove(path)
-    
-    # Clear session state
-    for key in list(st.session_state.keys()):
-        if key.startswith(f"completed::{playbook_name}") or key.startswith(f"comments::{playbook_name}"):
-            del st.session_state[key]
-    
-    st.success(f"**{playbook_name}** has been fully reset.")
-    st.rerun()
 
 def safe_image_display(src: str) -> bool:
     if not src:
@@ -726,7 +716,7 @@ def main():
     <div class="sticky-header">
         {logo_html}
         <div class="app-title">Joval Wines NIST Playbook Tracker</div>
-        <div class="nist-logo">NIST</div>
+        <div class="nist-logo"><img src="{NIST_LOGO_URL}" alt="Official NIST Logo" /></div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -747,8 +737,8 @@ def main():
         st.sidebar.markdown(f"[Open → {sel}]({resources[sel]})", unsafe_allow_html=True)
 
     st.sidebar.markdown("---")
-    st.sidebar.markdown('<div style="font-weight:600;">© Joval Wines</div>', unsafe_allow_html=True)
-    st.sidebar.markdown('<div;A style="font-weight:600;">Better Never Stops</div>', unsafe_allow_html=True)
+    st.sidebar.markdown('<div style="font-weight:700;font-size:1.1rem;">© Joval Wines</div>', unsafe_allow_html=True)
+    st.sidebar.markdown('<div style="font-weight:700;font-size:1.1rem;">Better Never Stops</div>', unsafe_allow_html=True)
 
     # === PLAYBOOK SELECT ===
     global playbooks
@@ -839,7 +829,7 @@ def main():
     if st.button("Refresh"):
         st.rerun()
 
-    # === ACTION BUTTONS (Compact & Clean) ===
+    # === ACTION BUTTONS (No Reset) ===
     c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("Save Progress"):
@@ -851,9 +841,6 @@ def main():
             if st.button("Confirm"):
                 create_jira_ticket(summary, desc)
     with c2:
-        if st.button("**Reset Playbook**"):
-            reset_playbook_progress(selected_playbook)
-
         csv_data = export_to_csv(completed_map, comments_map, selected_playbook)
         st.download_button("Download CSV", csv_data,
                            f"{os.path.splitext(selected_playbook)[0]}_progress.csv",
@@ -871,7 +858,7 @@ def main():
 
     show_feedback()
 
-    # === BOTTOM TOOLBAR ===
+    # === BOTTOM TOOLBAR (Fixed & Bold) ===
     st.markdown(f"""
     <div class="bottom-toolbar">
         <div>© Joval Wines – Better Never Stops</div>
