@@ -666,9 +666,7 @@ def is_action_table(rows: List[List[str]]) -> bool:
         return False
     headers = [h.strip().lower() for h in rows[0]]
     hits = sum(1 for h in headers if any(k in h for k in ACTION_HEADERS))
-    if hits >= 2 or (len(rows[0]) >= 4 and ref_pattern.match(rows[0][0].strip())):
-        return True
-    return False
+    return hits >= 2 or (len(rows[0]) >= 4 and ref_pattern.match(rows[0][0].strip()))
 
 def render_action_table(playbook_name, sec_key, rows, completed_map, comments_map, autosave, table_index=0):
     default_headers = ["Reference", "Step", "Description", "Ownership/Responsibility"]
@@ -780,10 +778,10 @@ def render_section(section, playbook_name, completed_map, comments_map, autosave
     
     state_key = get_expander_state_key(playbook_name, sec_key)
     
-    # All sections closed by default
+    # Default closed
     if state_key not in st.session_state:
         st.session_state[state_key] = False
-    
+
     with st.expander("Expand section", expanded=st.session_state[state_key]):
         current_state = st.session_state[state_key]
         saved_state = expander_states.get(sec_key, False)
@@ -850,9 +848,13 @@ def main():
         return
 
     st.markdown("<h2 style='margin-top:2rem;'>Select Playbook</h2>", unsafe_allow_html=True)
+
+    # FIXED: Bold playbook names
+    bold_playbooks = [f"**{pb}**" for pb in playbooks]
     selected_playbook = st.selectbox(
         "Playbook",
         options=[""] + playbooks,
+        format_func=lambda x: f"**{x}**" if x else "",
         index=0,
         key="select_playbook"
     )
@@ -880,21 +882,25 @@ def main():
         st.session_state[parsed_key] = parse_playbook_cached(os.path.join(PLAYBOOKS_DIR, selected_playbook))
     sections = st.session_state[parsed_key]
 
-    # === LOAD PROGRESS ===
     completed_map, comments_map, _ = load_progress(selected_playbook)
     expander_states = load_expander_states(selected_playbook, sections)
 
-    # === FILTER TASKS TO THIS PLAYBOOK ONLY ===
-    task_keys = [
-        k for k in completed_map.keys()
-        if "::row::" in k and any(stable_key(selected_playbook, sec["title"], sec["level"]) in k for sec in sections)
-    ]
+    # === COUNT ACTION ROWS FROM THIS PLAYBOOK ONLY ===
+    task_keys = []
+    for sec in sections:
+        sec_key = stable_key(selected_playbook, sec["title"], sec["level"])
+        for item in sec.get("content", []):
+            if item.get("type") == "table" and is_action_table(item.get("value", [])):
+                rows = item["value"][1:]  # skip header
+                for ridx in range(len(rows)):
+                    row_key = f"{sec_key}::tbl::0::row::{ridx}"
+                    task_keys.append(row_key)
+
     done_tasks = sum(1 for k in task_keys if completed_map.get(k, False))
     total_tasks = len(task_keys)
     pct = int((done_tasks / max(total_tasks, 1)) * 100) if total_tasks > 0 else 0
     badges = calculate_badges(pct)
 
-    # === STORE IN SESSION STATE ===
     st.session_state[f"completed::{selected_playbook}"] = completed_map
     st.session_state[f"comments::{selected_playbook}"] = comments_map
     st.session_state["expanders"] = expander_states
@@ -930,7 +936,7 @@ def main():
     """
     st.markdown(toc_html, unsafe_allow_html=True)
 
-    # === EXPAND/COLLAPSE ALL BUTTONS ===
+    # === EXPAND/COLLAPSE ALL — FIXED ===
     st.markdown("<div style='text-align:center;margin:1rem 0;'>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1, 3])
     with col1:
@@ -939,22 +945,26 @@ def main():
                 key = stable_key(selected_playbook, sec["title"], sec["level"])
                 save_expander_state(selected_playbook, key, True)
                 expander_states[key] = True
+                st.session_state[get_expander_state_key(selected_playbook, key)] = True
                 for sub in sec.get("subs", []):
                     sub_key = stable_key(selected_playbook, sub["title"], sub["level"])
                     save_expander_state(selected_playbook, sub_key, True)
                     expander_states[sub_key] = True
-            st.rerun()
+                    st.session_state[get_expander_state_key(selected_playbook, sub_key)] = True
+            st.success("All sections expanded!")
     with col2:
         if st.button("Collapse All", key="collapse_all"):
             for sec in sections:
                 key = stable_key(selected_playbook, sec["title"], sec["level"])
                 save_expander_state(selected_playbook, key, False)
                 expander_states[key] = False
+                st.session_state[get_expander_state_key(selected_playbook, key)] = False
                 for sub in sec.get("subs", []):
                     sub_key = stable_key(selected_playbook, sub["title"], sub["level"])
                     save_expander_state(selected_playbook, sub_key, False)
                     expander_states[sub_key] = False
-            st.rerun()
+                    st.session_state[get_expander_state_key(selected_playbook, sub_key)] = False
+            st.success("All sections collapsed!")
     st.markdown("</div>", unsafe_allow_html=True)
 
     # === CONTENT ===
