@@ -56,6 +56,7 @@ st.markdown(f"""
     --muted:#666666;
     --red:#800020;
     --gold:#FFD700;
+    --blue-shadow:#4169E1;
     --card-bg:#fafafa;
     --border:#eaeaea;
 }}
@@ -78,11 +79,71 @@ html,body,.stApp{{background:var(--bg)!important;color:var(--text)!important;fon
     font-size:2.8rem;
     font-weight:900;
     color:#000;
-    text-shadow: 2px 2px 4px var(--gold), 0 0 8px rgba(255,215,0,0.4);
+    text-shadow: 1px 1px 2px var(--blue-shadow), 0 0 4px rgba(65,105,225,0.3);
     letter-spacing:1px;
     margin-right:8px;
 }}
 .nist-text sup{{font-size:1.2rem;color:#555;}}
+
+/* Section Titles - ALL BOLD & LARGER */
+.section-title,
+.stExpander > div > div > div > label > div > span,
+.stExpander > div > div > div > label > div > div > span {{
+    font-size:1.9rem !important;
+    font-weight:700 !important;
+    color:var(--text) !important;
+    margin-bottom:0.5rem !important;
+}}
+.nist-incident-section {{
+    color:var(--red) !important;
+    font-size:1.9rem !important;
+    font-weight:700 !important;
+}}
+
+/* Sidebar */
+.css-1d391kg{{padding-top:1rem;}}
+.sidebar-header{{font-weight:600;font-size:1.1rem;margin-bottom:.5rem;}}
+.sidebar-subheader{{font-weight:600;margin-top:1rem;margin-bottom:.5rem;}}
+
+/* Content */
+.content-wrap{{margin-left:280px;padding:2rem 2rem 6rem;}}
+.section-card{{
+    background:var(--card-bg);padding:1.5rem;border-radius:12px;
+    margin-bottom:1.5rem;box-shadow:0 2px 6px rgba(0,0,0,.04);
+    border:1px solid var(--border);
+}}
+
+/* Buttons - Compact */
+.stButton>button,.stDownloadButton>button{{
+    background:#000!important;color:#fff!important;
+    border-radius:8px;padding:0.5rem 1.2rem!important;
+    font-weight:600;font-size:0.95rem;
+    width:auto!important;min-width:140px;
+    text-align:center;margin:0.3rem auto;display:block;
+}}
+.stButton>button:hover,.stDownloadButton>button:hover{{opacity:.9;}}
+
+/* Progress */
+.progress-wrap{{height:12px;background:#e5e5e5;border-radius:999px;overflow:hidden;margin:1rem 0;}}
+.progress-fill{{height:100%;background:var(--red);transition:width .4s ease;}}
+
+/* Bottom Toolbar */
+.bottom-toolbar{{
+    position:fixed;bottom:0;left:0;right:0;z-index:999;
+    background:#fff;border-top:1px solid var(--border);
+    padding:.75rem 2rem;display:flex;align-items:center;justify-content:space-between;
+    box-shadow:0 -2px 8px rgba(0,0,0,.03);
+    font-size:1.1rem;font-weight:700;
+}}
+
+/* Responsive */
+@media (max-width:768px){{
+    .sticky-header{{flex-direction:column;padding:1rem;min-height:auto;}}
+    .app-title{{font-size:1.8rem;}}
+    .logo-left,.nist-text{{font-size:2.2rem;}}
+    .content-wrap{{margin-left:0;padding:1rem;}}
+    .section-title,.nist-incident-section{{font-size:1.6rem !important;}}
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -436,7 +497,8 @@ def theme_selector():
         .sticky-header, .bottom-toolbar { background:rgba(0,0,0,0.95); border-color:var(--border); }
         .section-card { background:var(--card-bg); border-color:var(--border); }
         .progress-wrap { background:rgba(255,255,255,0.1); }
-        .nist-text { color:#fff; text-shadow: 2px 2px 4px #B8860B, 0 0 8px rgba(255,215,0,0.6); }
+        .nist-text { color:#fff; text-shadow: 1px 1px 2px #4169E1, 0 0 4px rgba(65,105,225,0.5); }
+        .section-title, .nist-incident-section { color:#fff !important; }
         </style>
         """, unsafe_allow_html=True)
     return theme
@@ -693,8 +755,8 @@ def render_section_content(section, playbook_name, completed_map, comments_map, 
 
 def render_section(section, playbook_name, completed_map, comments_map, autosave):
     sec_key = stable_key(playbook_name, section["title"], section["level"])
-    title_class = "nist-incident-section" if section["title"] == "NIST Incident Handling Categories" else ""
-    st.markdown(f"<div class='section-title {title_class}' id='{sec_key}'>{section['title']}</div>", unsafe_allow_html=True)
+    title_class = "nist-incident-section" if section["title"] == "NIST Incident Handling Categories" else "section-title"
+    st.markdown(f"<div class='{title_class}' id='{sec_key}'>{section['title']}</div>", unsafe_allow_html=True)
     with st.expander("Expand section", expanded=False):
         render_section_content(section, playbook_name, completed_map, comments_map, autosave, sec_key)
 
