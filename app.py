@@ -112,14 +112,11 @@ html,body,.stApp{{background:var(--bg)!important;color:var(--text)!important;fon
 .toc-item {{display:block;padding:4px 0;color:#111;text-decoration:none;}}
 .toc-item:hover {{color:var(--red);font-weight:600;}}
 
-/* Expand/Collapse Button */
-.expand-all-btn button {{
-    background: #000 !important;
-    color: #fff !important;
-    border-radius: 8px;
-    padding: 0.5rem 1rem !important;
-    font-weight: 600;
-    font-size: 0.9rem;
+/* Smaller Expand/Collapse Buttons */
+button[kind="secondary"] {{
+    padding: 0.4rem 0.8rem !important;
+    font-size: 0.85rem !important;
+    min-height: 36px !important;
 }}
 
 /* Content */
@@ -784,10 +781,11 @@ def render_section(section, playbook_name, completed_map, comments_map, autosave
     default_open = expander_states.get(sec_key, False)
     
     with st.expander("Expand section", expanded=default_open, key=state_key):
-        # Save state on change (no st.rerun() here!)
-        if st.session_state.get(state_key, False) != default_open:
-            save_expander_state(playbook_name, sec_key, st.session_state[state_key])
-            expander_states[sec_key] = st.session_state[state_key]
+        # FIXED: Use .get() to avoid KeyError
+        current_state = st.session_state.get(state_key, default_open)
+        if current_state != default_open:
+            save_expander_state(playbook_name, sec_key, current_state)
+            expander_states[sec_key] = current_state
         
         render_section_content(section, playbook_name, completed_map, comments_map, autosave, sec_key)
 
@@ -916,10 +914,11 @@ def main():
     """
     st.markdown(toc_html, unsafe_allow_html=True)
 
-    # === EXPAND/COLLAPSE ALL BUTTONS ===
-    col_expand, _ = st.columns([1, 4])
-    with col_expand:
-        if st.button("Expand All", key="expand_all"):
+    # === EXPAND/COLLAPSE ALL BUTTONS — SMALL & INLINE ===
+    st.markdown("<div style='text-align:center;margin:1rem 0;'>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 1, 3])
+    with col1:
+        if st.button("Expand All", key="expand_all", help="Open all sections"):
             for sec in sections:
                 key = stable_key(selected_playbook, sec["title"], sec["level"])
                 save_expander_state(selected_playbook, key, True)
@@ -929,8 +928,8 @@ def main():
                     save_expander_state(selected_playbook, sub_key, True)
                     expander_states[sub_key] = True
             st.rerun()
-    with col_expand:
-        if st.button("Collapse All", key="collapse_all"):
+    with col2:
+        if st.button("Collapse All", key="collapse_all", help="Close all except NIST"):
             for sec in sections:
                 key = stable_key(selected_playbook, sec["title"], sec["level"])
                 is_nist = sec["title"] == "NIST Incident Handling Categories"
@@ -941,6 +940,7 @@ def main():
                     save_expander_state(selected_playbook, sub_key, False)
                     expander_states[sub_key] = False
             st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # === CONTENT ===
     st.markdown('<div class="content-wrap">', unsafe_allow_html=True)
