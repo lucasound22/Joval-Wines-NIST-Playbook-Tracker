@@ -36,7 +36,7 @@ USERS_FILE = "users.json"
 Path(PLAYBOOKS_DIR).mkdir(exist_ok=True)
 Path(USERS_FILE).touch(exist_ok=True)
 
-# === PAGE CONFIG & FULLY REMOVE STREAMLIT BRANDING ===
+# === PAGE CONFIG & REMOVE ALL STREAMLIT BRANDING ===
 st.set_page_config(
     page_title="Joval Wines NIST Playbook Tracker",
     page_icon="wine",
@@ -47,23 +47,10 @@ st.set_page_config(
 # HIDE ALL STREAMLIT BRANDING
 hide_streamlit_style = """
 <style>
-    /* Hide Streamlit footer, menu, toolbar */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .stDeployButton {display: none;}
-    .css-1d391kg {display: none;}  /* Deploy button */
-    .css-1v0mbdj {display: none;}  /* Top right menu */
-    .css-1y0t5a4 {display: none;}  /* Streamlit logo */
-    .css-1v3fvcr {display: none;}  /* Sidebar toggle */
-    .css-1v0mbdj a {display: none;}
-    .css-1v0mbdj button {display: none;}
-    .css-1v0mbdj img {display: none;}
-    /* Hide all possible Streamlit traces */
-    [data-testid="stDecoration"] {display: none;}
-    [data-testid="stToolbar"] {display: none;}
-    [data-testid="stHeader"] {display: none;}
-    [data-testid="stFooter"] {display: none;}
+    #MainMenu, footer, header, .stDeployButton, [data-testid="stToolbar"], 
+    [data-testid="stHeader"], [data-testid="stFooter"], [data-testid="stDecoration"],
+    .css-1d391kg, .css-1v0mbdj, .css-1y0t5a4, .css-1v3fvcr, .css-1v0mbdj a, 
+    .css-1v0mbdj button, .css-1v0mbdj img {display: none !important;}
 </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -430,7 +417,7 @@ def progress_filepath(playbook_name: str) -> str:
     base = os.path.splitext(playbook_name)[0]
     return os.path.join(PLAYBOOKS_DIR, f"{base}_progress.json")
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def load_progress(playbook_name: str):
     path = progress_filepath(playbook_name)
     if os.path.exists(path):
@@ -442,11 +429,12 @@ def load_progress(playbook_name: str):
                     data.get("comments", {}),
                     data.get("expanders", {})
                 )
-        except Exception:
+        except Exception as e:
+            st.warning(f"Failed to load progress: {e}")
             return {}, {}, {}
     return {}, {}, {}
 
-def save_progress(playbook_name: str, completed_map: dict, comments_map: dict, expanders_map: dict) -> str:
+def save_progress(playbook_name: str, completed_map: dict, comments_map: dict, expanders_map: dict):
     rec = {
         "playbook": playbook_name,
         "timestamp": datetime.now().isoformat(),
@@ -458,7 +446,6 @@ def save_progress(playbook_name: str, completed_map: dict, comments_map: dict, e
     path = progress_filepath(playbook_name)
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(rec, fh, indent=2)
-    return path
 
 def safe_image_display(src: str) -> bool:
     if not src:
@@ -474,18 +461,12 @@ def safe_image_display(src: str) -> bool:
             return False
 
 def calculate_badges(pct: int) -> List[str]:
-    if pct >= 100:
-        return ["Gold Star"]
-    elif pct >= 80:
-        return ["Silver Shield"]
-    elif pct >= 50:
-        return ["Bronze Medal"]
-    elif pct >= 25:
-        return ["Progress Starter"]
-    elif pct > 0:
-        return ["Just Started"]
-    else:
-        return ["Ready to Begin"]
+    if pct >= 100: return ["Gold Star"]
+    elif pct >= 80: return ["Silver Shield"]
+    elif pct >= 50: return ["Bronze Medal"]
+    elif pct >= 25: return ["Progress Starter"]
+    elif pct > 0: return ["Just Started"]
+    else: return ["Ready to Begin"]
 
 def save_feedback(rating: int, comments: str):
     feedback_data = {"rating": rating, "comments": comments, "timestamp": datetime.now().isoformat()}
@@ -675,26 +656,31 @@ def is_action_table(rows: List[List[str]]) -> bool:
     hits = sum(1 for h in headers if any(k in h for k in ACTION_HEADERS))
     return hits >= 2 or (len(rows[0]) >= 4 and ref_pattern.match(rows[0][0].strip()))
 
+# Global counter for progress
+task_counter = {"total": 0, "done": 0}
+
 def render_action_table(playbook_name, sec_key, rows, completed_map, comments_map, autosave, table_index=0):
+    global task_counter
     default_headers = ["Reference", "Step", "Description", "Ownership/Responsibility"]
     headers = rows[0] if len(rows) > 0 and not ref_pattern.match(rows[0][0].strip() if rows[0] else "") else default_headers
     data_rows = rows[1:] if len(rows) > 1 else rows
     for row in data_rows:
         while len(row) < 4:
             row.append("")
+
+    task_counter["total"] += len(data_rows)
+
     st.caption("Mark tasks complete and add notes.")
     cols = st.columns([1, 2, 4, 2, 1, 2])
     for i, h in enumerate(["Ref", "Step", "Desc", "Owner", "Done", "Comment"]):
         cols[i].write(h)
+
     changed = False
     table_key = f"{sec_key}::tbl::{table_index}"
     for ridx, row in enumerate(data_rows):
         row_key = f"{table_key}::row::{ridx}"
         comment_key = f"{row_key}::comment"
-        ref = row[0]
-        step = row[1]
-        desc = " ".join(row[2:-1])
-        owner = row[-1]
+        ref = row[0]; step = row[1]; desc = " ".join(row[2:-1]); owner = row[-1]
         prev_val = completed_map.get(row_key, False)
         prev_comment = comments_map.get(comment_key, "")
 
@@ -702,16 +688,17 @@ def render_action_table(playbook_name, sec_key, rows, completed_map, comments_ma
         ci_key = f"ci_{playbook_name}_{sec_key}_{table_index}_{ridx}"
 
         cols = st.columns([1, 2, 4, 2, 1, 2])
-        cols[0].write(ref)
-        cols[1].write(step)
-        cols[2].write(desc)
-        cols[3].write(owner)
+        cols[0].write(ref); cols[1].write(step); cols[2].write(desc); cols[3].write(owner)
         new_val = cols[4].checkbox("", value=prev_val, key=cb_key)
         new_comment = cols[5].text_input("", value=prev_comment, key=ci_key, label_visibility="collapsed")
 
         if new_val != prev_val:
             completed_map[row_key] = new_val
             changed = True
+            if new_val:
+                task_counter["done"] += 1
+            else:
+                task_counter["done"] -= 1
         if new_comment != prev_comment:
             comments_map[comment_key] = new_comment
             changed = True
@@ -784,8 +771,6 @@ def render_section(section, playbook_name, completed_map, comments_map, autosave
     st.markdown(f"<div class='{title_class}' id='{sec_key}'>{section['title']}</div>", unsafe_allow_html=True)
     
     state_key = get_expander_state_key(playbook_name, sec_key)
-    
-    # Default closed
     if state_key not in st.session_state:
         st.session_state[state_key] = False
 
@@ -855,8 +840,6 @@ def main():
         return
 
     st.markdown("<h2 style='margin-top:2rem;'>Select Playbook</h2>", unsafe_allow_html=True)
-
-    # Bold playbook names
     selected_playbook = st.selectbox(
         "Playbook",
         options=[""] + playbooks,
@@ -891,111 +874,44 @@ def main():
     completed_map, comments_map, _ = load_progress(selected_playbook)
     expander_states = load_expander_states(selected_playbook, sections)
 
-    # === COUNT TASKS USING EXACT ROW KEYS (FIXED) ===
-    task_keys = []
-    for sec in sections:
-        sec_key = stable_key(selected_playbook, sec["title"], sec["level"])
-        table_idx = 0
-        for item in sec.get("content", []):
-            if item.get("type") == "table" and is_action_table(item.get("value", [])):
-                rows = item["value"][1:]  # skip header
-                for ridx in range(len(rows)):
-                    row_key = f"{sec_key}::tbl::{table_idx}::row::{ridx}"
-                    task_keys.append(row_key)
-                table_idx += 1
+    # === RESET PROGRESS COUNTER ===
+    task_counter["total"] = 0
+    task_counter["done"] = 0
 
-    done_tasks = sum(1 for k in task_keys if completed_map.get(k, False))
-    total_tasks = len(task_keys)
-    pct = int((done_tasks / max(total_tasks, 1)) * 100) if total_tasks > 0 else 0
-    badges = calculate_badges(pct)
-
-    st.session_state[f"completed::{selected_playbook}"] = completed_map
-    st.session_state[f"comments::{selected_playbook}"] = comments_map
-    st.session_state["expanders"] = expander_states
-
-    # === TOC WITH SEARCH ===
-    toc_items = []
-    def collect_toc(secs):
-        for s in secs:
-            key = stable_key(selected_playbook, s["title"], s["level"])
-            toc_items.append({"title": s["title"], "anchor": key})
-            if s.get("subs"):
-                collect_toc(s["subs"])
-    collect_toc(sections)
-
-    search_term = st.text_input("Search sections...", key="toc_search", label_visibility="collapsed")
-    filtered_toc = [
-        item for item in toc_items
-        if search_term.lower() in item["title"].lower()
-    ] if search_term else toc_items
-
-    toc_links = "".join(
-        f'<a href="#{item["anchor"]}" class="toc-item" onclick="document.getElementById(\'{item["anchor"]}\').scrollIntoView();return false;">{item["title"]}</a>'
-        for item in filtered_toc
-    )
-    toc_html = f"""
-    <div style="position:fixed;left:1rem;top:110px;bottom:100px;width:250px;background:#fff;padding:1rem;border-radius:8px;overflow:auto;box-shadow:0 2px 6px rgba(0,0,0,.04);border:1px solid #eaeaea;">
-        <div class="toc-search"><input type="text" placeholder="Search sections..." value="{search_term}" /></div>
-        <h4 style="margin:0.5rem 0 0.75rem 0;">Table of Contents</h4>
-        <div style="max-height:calc(100% - 80px);overflow-y:auto;">
-            {toc_links if toc_links else '<em>No matches</em>'}
-        </div>
-    </div>
-    """
-    st.markdown(toc_html, unsafe_allow_html=True)
-
-    # === EXPAND/COLLAPSE ALL ===
-    st.markdown("<div style='text-align:center;margin:1rem 0;'>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1, 3])
-    with col1:
-        if st.button("Expand All", key="expand_all"):
-            for sec in sections:
-                key = stable_key(selected_playbook, sec["title"], sec["level"])
-                save_expander_state(selected_playbook, key, True)
-                expander_states[key] = True
-                st.session_state[get_expander_state_key(selected_playbook, key)] = True
-                for sub in sec.get("subs", []):
-                    sub_key = stable_key(selected_playbook, sub["title"], sub["level"])
-                    save_expander_state(selected_playbook, sub_key, True)
-                    expander_states[sub_key] = True
-                    st.session_state[get_expander_state_key(selected_playbook, sub_key)] = True
-            st.success("All sections expanded!")
-    with col2:
-        if st.button("Collapse All", key="collapse_all"):
-            for sec in sections:
-                key = stable_key(selected_playbook, sec["title"], sec["level"])
-                save_expander_state(selected_playbook, key, False)
-                expander_states[key] = False
-                st.session_state[get_expander_state_key(selected_playbook, key)] = False
-                for sub in sec.get("subs", []):
-                    sub_key = stable_key(selected_playbook, sub["title"], sub["level"])
-                    save_expander_state(selected_playbook, sub_key, False)
-                    expander_states[sub_key] = False
-                    st.session_state[get_expander_state_key(selected_playbook, sub_key)] = False
-            st.success("All sections collapsed!")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # === CONTENT ===
+    # === RENDER CONTENT ===
     st.markdown('<div class="content-wrap">', unsafe_allow_html=True)
     for sec in sections:
         render_section(sec, selected_playbook, completed_map, comments_map, autosave, expander_states)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # === PROGRESS DISPLAY ===
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.info(f"**Progress:** {pct}% – {', '.join(badges)}")
-    with col2:
-        if st.button("Gamify!"):
-            st.session_state.gamify = not st.session_state.gamify
-            if st.session_state.gamify:
-                st.session_state.gamify_count += 1
-                if st.session_state.gamify_count % 2 == 1:
-                    st.balloons()
-                else:
-                    st.snow()
+    # === FINAL PROGRESS CALCULATION ===
+    done = sum(1 for k, v in completed_map.items() if v and "::row::" in k)
+    total = task_counter["total"]
+    pct = int((done / max(total, 1)) * 100) if total > 0 else 0
+    badges = calculate_badges(pct)
 
-    st.markdown(f"<div class='progress-wrap'><div class='progress-fill' style='width:{pct}%'></div></div>", unsafe_allow_html=True)
+    # === SHOW PROGRESS BAR ===
+    if total > 0:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.info(f"**Progress:** {pct}% – {', '.join(badges)}")
+        with col2:
+            if st.button("Gamify!"):
+                st.session_state.gamify = not st.session_state.gamify
+                if st.session_state.gamify:
+                    st.session_state.gamify_count = st.session_state.get("gamify_count", 0) + 1
+                    if st.session_state.gamify_count % 2 == 1:
+                        st.balloons()
+                    else:
+                        st.snow()
+
+        st.markdown(f"<div class='progress-wrap'><div class='progress-fill' style='width:{pct}%'></div></div>", unsafe_allow_html=True)
+    else:
+        st.warning("No actionable tasks found in this playbook.")
+
+    # === SAVE ON CHANGE ===
+    if autosave:
+        save_progress(selected_playbook, completed_map, comments_map, expander_states)
 
     # === ACTION BUTTONS ===
     st.markdown("### Actions")
@@ -1016,9 +932,6 @@ def main():
                                export_to_excel(completed_map, comments_map, selected_playbook, bulk_export),
                                f"{os.path.splitext(selected_playbook)[0]}_progress.xlsx",
                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-    if autosave:
-        save_progress(selected_playbook, completed_map, comments_map, expander_states)
 
     show_feedback()
 
