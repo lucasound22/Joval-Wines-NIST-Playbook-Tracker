@@ -780,7 +780,7 @@ def render_section(section, playbook_name, completed_map, comments_map, autosave
     
     state_key = get_expander_state_key(playbook_name, sec_key)
     
-    # FIXED: All sections closed by default
+    # All sections closed by default
     if state_key not in st.session_state:
         st.session_state[state_key] = False
     
@@ -880,9 +880,21 @@ def main():
         st.session_state[parsed_key] = parse_playbook_cached(os.path.join(PLAYBOOKS_DIR, selected_playbook))
     sections = st.session_state[parsed_key]
 
+    # === LOAD PROGRESS ===
     completed_map, comments_map, _ = load_progress(selected_playbook)
     expander_states = load_expander_states(selected_playbook, sections)
 
+    # === FILTER TASKS TO THIS PLAYBOOK ONLY ===
+    task_keys = [
+        k for k in completed_map.keys()
+        if "::row::" in k and any(stable_key(selected_playbook, sec["title"], sec["level"]) in k for sec in sections)
+    ]
+    done_tasks = sum(1 for k in task_keys if completed_map.get(k, False))
+    total_tasks = len(task_keys)
+    pct = int((done_tasks / max(total_tasks, 1)) * 100) if total_tasks > 0 else 0
+    badges = calculate_badges(pct)
+
+    # === STORE IN SESSION STATE ===
     st.session_state[f"completed::{selected_playbook}"] = completed_map
     st.session_state[f"comments::{selected_playbook}"] = comments_map
     st.session_state["expanders"] = expander_states
@@ -918,11 +930,11 @@ def main():
     """
     st.markdown(toc_html, unsafe_allow_html=True)
 
-    # === EXPAND/COLLAPSE ALL BUTTONS — SMALL & INLINE ===
+    # === EXPAND/COLLAPSE ALL BUTTONS ===
     st.markdown("<div style='text-align:center;margin:1rem 0;'>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1, 3])
     with col1:
-        if st.button("Expand All", key="expand_all", help="Open all sections"):
+        if st.button("Expand All", key="expand_all"):
             for sec in sections:
                 key = stable_key(selected_playbook, sec["title"], sec["level"])
                 save_expander_state(selected_playbook, key, True)
@@ -933,7 +945,7 @@ def main():
                     expander_states[sub_key] = True
             st.rerun()
     with col2:
-        if st.button("Collapse All", key="collapse_all", help="Close all sections"):
+        if st.button("Collapse All", key="collapse_all"):
             for sec in sections:
                 key = stable_key(selected_playbook, sec["title"], sec["level"])
                 save_expander_state(selected_playbook, key, False)
@@ -951,13 +963,7 @@ def main():
         render_section(sec, selected_playbook, completed_map, comments_map, autosave, expander_states)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # === PROGRESS — FIXED: Only count action table rows ===
-    task_keys = [k for k in completed_map.keys() if "::row::" in k]
-    done_tasks = sum(1 for k in task_keys if completed_map.get(k, False))
-    total_tasks = len(task_keys)
-    pct = int((done_tasks / max(total_tasks, 1)) * 100) if total_tasks > 0 else 0
-    badges = calculate_badges(pct)
-
+    # === PROGRESS DISPLAY ===
     col1, col2 = st.columns([3, 1])
     with col1:
         st.info(f"**Progress:** {pct}% – {', '.join(badges)}")
@@ -992,8 +998,6 @@ def main():
                                export_to_excel(completed_map, comments_map, selected_playbook, bulk_export),
                                f"{os.path.splitext(selected_playbook)[0]}_progress.xlsx",
                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    with col_c:
-        pass
 
     if autosave:
         save_progress(selected_playbook, completed_map, comments_map, expander_states)
