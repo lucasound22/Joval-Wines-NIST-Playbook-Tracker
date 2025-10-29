@@ -780,14 +780,11 @@ def render_section(section, playbook_name, completed_map, comments_map, autosave
     
     state_key = get_expander_state_key(playbook_name, sec_key)
     
-    # Initialize state if not exists
+    # FIXED: All sections closed by default
     if state_key not in st.session_state:
-        is_nist = section["title"] == "NIST Incident Handling Categories"
-        st.session_state[state_key] = is_nist  # Default: NIST open, others closed
+        st.session_state[state_key] = False
     
-    # Use session_state for expanded
     with st.expander("Expand section", expanded=st.session_state[state_key]):
-        # Detect change
         current_state = st.session_state[state_key]
         saved_state = expander_states.get(sec_key, False)
         if current_state != saved_state:
@@ -936,12 +933,11 @@ def main():
                     expander_states[sub_key] = True
             st.rerun()
     with col2:
-        if st.button("Collapse All", key="collapse_all", help="Close all except NIST"):
+        if st.button("Collapse All", key="collapse_all", help="Close all sections"):
             for sec in sections:
                 key = stable_key(selected_playbook, sec["title"], sec["level"])
-                is_nist = sec["title"] == "NIST Incident Handling Categories"
-                save_expander_state(selected_playbook, key, is_nist)
-                expander_states[key] = is_nist
+                save_expander_state(selected_playbook, key, False)
+                expander_states[key] = False
                 for sub in sec.get("subs", []):
                     sub_key = stable_key(selected_playbook, sub["title"], sub["level"])
                     save_expander_state(selected_playbook, sub_key, False)
@@ -955,9 +951,9 @@ def main():
         render_section(sec, selected_playbook, completed_map, comments_map, autosave, expander_states)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # === PROGRESS ===
+    # === PROGRESS — FIXED: Only count action table rows ===
     task_keys = [k for k in completed_map.keys() if "::row::" in k]
-    done_tasks = sum(1 for k in task_keys if completed_map[k])
+    done_tasks = sum(1 for k in task_keys if completed_map.get(k, False))
     total_tasks = len(task_keys)
     pct = int((done_tasks / max(total_tasks, 1)) * 100) if total_tasks > 0 else 0
     badges = calculate_badges(pct)
