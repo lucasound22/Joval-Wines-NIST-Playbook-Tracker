@@ -16,10 +16,10 @@ from bs4 import BeautifulSoup
 import pandas as pd
 
 try:
-    import openpyxl
-    OPENPYXL_AVAILABLE = True
+import openpyxl
+OPENPYXL_AVAILABLE = True
 except ImportError:
-    OPENPYXL_AVAILABLE = False
+OPENPYXL_AVAILABLE = False
 
 import logging
 
@@ -85,7 +85,7 @@ html,body,.stApp{{background:var(--bg)!important;color:var(--text)!important;fon
 }}
 .nist-text sup{{font-size:1.2rem;color:#555;}}
 
-/* Section Titles - BOLD & LARGE */
+/* Section Titles */
 .section-title,
 .stExpander > div > div > div > label > div > span,
 .stExpander > div > div > div > label > div > div > span {{
@@ -108,13 +108,13 @@ html,body,.stApp{{background:var(--bg)!important;color:var(--text)!important;fon
     border:1px solid var(--border);
 }}
 
-/* Buttons - Compact & Spaced */
+/* Buttons - Spaced & Tall */
 .stButton>button,.stDownloadButton>button{{
     background:#000!important;color:#fff!important;
-    border-radius:8px;padding:0.6rem 1.4rem!important;
+    border-radius:8px;padding:0.75rem 1.5rem!important;
     font-weight:600;font-size:1rem;
-    width:100%!important;min-height:48px;
-    text-align:center;margin:0.5rem 0;
+    width:100%!important;min-height:52px;
+    text-align:center;margin:0.6rem 0;
 }}
 .stButton>button:hover,.stDownloadButton>button:hover{{opacity:.9;}}
 
@@ -669,7 +669,7 @@ def render_action_table(playbook_name, sec_key, rows, completed_map, comments_ma
         prev_val = completed_map.get(row_key, False)
         prev_comment = comments_map.get(comment_key, "")
 
-        # UNIQUE KEYS TO PREVENT COLLAPSE
+        # UNIQUE KEYS - PREVENTS COLLAPSE & 100% BUG
         cb_key = f"cb_{playbook_name}_{sec_key}_{table_index}_{ridx}"
         ci_key = f"ci_{playbook_name}_{sec_key}_{table_index}_{ridx}"
 
@@ -680,12 +680,14 @@ def render_action_table(playbook_name, sec_key, rows, completed_map, comments_ma
         cols[3].write(owner)
         new_val = cols[4].checkbox("", value=prev_val, key=cb_key)
         new_comment = cols[5].text_input("", value=prev_comment, key=ci_key, label_visibility="collapsed")
+
         if new_val != prev_val:
             completed_map[row_key] = new_val
             changed = True
         if new_comment != prev_comment:
             comments_map[comment_key] = new_comment
             changed = True
+
     if autosave and changed:
         save_progress(playbook_name, completed_map, comments_map)
 
@@ -720,7 +722,7 @@ def render_section_content(section, playbook_name, completed_map, comments_map, 
     if not is_sub:
         st.markdown("<div style='font-weight:700;margin-top:12px;margin-bottom:6px;'>Comments / Notes</div>", unsafe_allow_html=True)
         prev_sec_comment = comments_map.get(sec_key, "")
-        sec_comment_key = f"sec_comment_{playbook_name}_{sec_key}"
+        sec_comment_key = f"sec_cmt_{playbook_name}_{sec_key}"
         new_sec_comment = st.text_area("", value=prev_sec_comment, key=sec_comment_key, height=120, label_visibility="collapsed")
         if new_sec_comment != prev_sec_comment:
             comments_map[sec_key] = new_sec_comment
@@ -731,7 +733,7 @@ def render_section(section, playbook_name, completed_map, comments_map, autosave
     sec_key = stable_key(playbook_name, section["title"], section["level"])
     title_class = "nist-incident-section" if section["title"] == "NIST Incident Handling Categories" else "section-title"
     st.markdown(f"<div class='{title_class}' id='{sec_key}'>{section['title']}</div>", unsafe_allow_html=True)
-    with st.expander("Expand section", expanded=False):
+    with st.expander("Expand section", expanded=True):  # DEFAULT OPEN
         render_section_content(section, playbook_name, completed_map, comments_map, autosave, sec_key)
 
 # === MAIN APP ===
@@ -848,10 +850,11 @@ def main():
         render_section(sec, selected_playbook, completed_map, comments_map, autosave)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # === PROGRESS ===
-    total_checks = len([k for k in completed_map if '::row::' in k])
-    done_checks = sum(1 for v in completed_map.values() if v)
-    pct = int((done_checks / max(total_checks, 1)) * 100)
+    # === PROGRESS - ONLY COUNT REAL TASKS ===
+    task_keys = [k for k in completed_map.keys() if "::row::" in k]
+    done_tasks = sum(1 for k in task_keys if completed_map[k])
+    total_tasks = len(task_keys)
+    pct = int((done_tasks / max(total_tasks, 1)) * 100) if total_tasks > 0 else 0
     badges = calculate_badges(pct)
 
     col1, col2 = st.columns([3, 1])
@@ -869,7 +872,7 @@ def main():
 
     st.markdown(f"<div class='progress-wrap'><div class='progress-fill' style='width:{pct}%'></div></div>", unsafe_allow_html=True)
 
-    # === ACTION BUTTONS - CLEAN & SPACED ===
+    # === ACTION BUTTONS ===
     st.markdown("### Actions")
     col_a, col_b, col_c = st.columns(3)
     with col_a:
@@ -889,7 +892,7 @@ def main():
                                f"{os.path.splitext(selected_playbook)[0]}_progress.xlsx",
                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     with col_c:
-        pass  # Empty for spacing
+        pass
 
     if autosave:
         save_progress(selected_playbook, completed_map, comments_map)
