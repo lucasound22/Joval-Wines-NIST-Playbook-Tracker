@@ -784,11 +784,10 @@ def render_section(section, playbook_name, completed_map, comments_map, autosave
     default_open = expander_states.get(sec_key, False)
     
     with st.expander("Expand section", expanded=default_open, key=state_key):
-        new_state = st.session_state[state_key]
-        if new_state != default_open:
-            save_expander_state(playbook_name, sec_key, new_state)
-            expander_states[sec_key] = new_state
-            st.rerun()
+        # Save state on change (no st.rerun() here!)
+        if st.session_state.get(state_key, False) != default_open:
+            save_expander_state(playbook_name, sec_key, st.session_state[state_key])
+            expander_states[sec_key] = st.session_state[state_key]
         
         render_section_content(section, playbook_name, completed_map, comments_map, autosave, sec_key)
 
