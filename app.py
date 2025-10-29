@@ -36,7 +36,7 @@ USERS_FILE = "users.json"
 Path(PLAYBOOKS_DIR).mkdir(exist_ok=True)
 Path(USERS_FILE).touch(exist_ok=True)
 
-# === PAGE CONFIG & MODERN UI ===
+# === PAGE CONFIG & FULLY REMOVE STREAMLIT BRANDING ===
 st.set_page_config(
     page_title="Joval Wines NIST Playbook Tracker",
     page_icon="wine",
@@ -44,6 +44,31 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# HIDE ALL STREAMLIT BRANDING
+hide_streamlit_style = """
+<style>
+    /* Hide Streamlit footer, menu, toolbar */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .stDeployButton {display: none;}
+    .css-1d391kg {display: none;}  /* Deploy button */
+    .css-1v0mbdj {display: none;}  /* Top right menu */
+    .css-1y0t5a4 {display: none;}  /* Streamlit logo */
+    .css-1v3fvcr {display: none;}  /* Sidebar toggle */
+    .css-1v0mbdj a {display: none;}
+    .css-1v0mbdj button {display: none;}
+    .css-1v0mbdj img {display: none;}
+    /* Hide all possible Streamlit traces */
+    [data-testid="stDecoration"] {display: none;}
+    [data-testid="stToolbar"] {display: none;}
+    [data-testid="stHeader"] {display: none;}
+    [data-testid="stFooter"] {display: none;}
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+# === CUSTOM STYLES ===
 st.markdown(f"""
 <style>
 /* Tailwind CDN */
@@ -140,24 +165,6 @@ button[kind="secondary"] {{
 /* Progress */
 .progress-wrap{{height:12px;background:#e5e5e5;border-radius:999px;overflow:hidden;margin:1rem 0;}}
 .progress-fill{{height:100%;background:var(--red);transition:width .4s ease;}}
-
-/* Bottom Toolbar */
-.bottom-toolbar{{
-    position:fixed;bottom:0;left:0;right:0;z-index:999;
-    background:#fff;border-top:1px solid var(--border);
-    padding:.75rem 2rem;display:flex;align-items:center;justify-content:space-between;
-    box-shadow:0 -2px 8px rgba(0,0,0,.03);
-    font-size:1.1rem;font-weight:700;
-}}
-
-/* Responsive */
-@media (max-width:768px){{
-    .sticky-header{{flex-direction:column;padding:1rem;min-height:auto;}}
-    .app-title{{font-size:1.8rem;}}
-    .nist-text{{font-size:2.2rem;}}
-    .content-wrap{{margin-left:0;padding:1rem;}}
-    .section-title,.nist-incident-section{{font-size:1.6rem !important;}}
-}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -849,8 +856,7 @@ def main():
 
     st.markdown("<h2 style='margin-top:2rem;'>Select Playbook</h2>", unsafe_allow_html=True)
 
-    # FIXED: Bold playbook names
-    bold_playbooks = [f"**{pb}**" for pb in playbooks]
+    # Bold playbook names
     selected_playbook = st.selectbox(
         "Playbook",
         options=[""] + playbooks,
@@ -885,16 +891,18 @@ def main():
     completed_map, comments_map, _ = load_progress(selected_playbook)
     expander_states = load_expander_states(selected_playbook, sections)
 
-    # === COUNT ACTION ROWS FROM THIS PLAYBOOK ONLY ===
+    # === COUNT TASKS USING EXACT ROW KEYS (FIXED) ===
     task_keys = []
     for sec in sections:
         sec_key = stable_key(selected_playbook, sec["title"], sec["level"])
+        table_idx = 0
         for item in sec.get("content", []):
             if item.get("type") == "table" and is_action_table(item.get("value", [])):
                 rows = item["value"][1:]  # skip header
                 for ridx in range(len(rows)):
-                    row_key = f"{sec_key}::tbl::0::row::{ridx}"
+                    row_key = f"{sec_key}::tbl::{table_idx}::row::{ridx}"
                     task_keys.append(row_key)
+                table_idx += 1
 
     done_tasks = sum(1 for k in task_keys if completed_map.get(k, False))
     total_tasks = len(task_keys)
@@ -936,7 +944,7 @@ def main():
     """
     st.markdown(toc_html, unsafe_allow_html=True)
 
-    # === EXPAND/COLLAPSE ALL — FIXED ===
+    # === EXPAND/COLLAPSE ALL ===
     st.markdown("<div style='text-align:center;margin:1rem 0;'>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1, 3])
     with col1:
