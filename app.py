@@ -1,1008 +1,698 @@
-
-# app.py
-import os
-import io
-import re
-import json
-import base64
-import hashlib
-import secrets
-from datetime import datetime
-from pathlib import Path
-from typing import List, Dict, Any
-
 import streamlit as st
-import mammoth
-from bs4 import BeautifulSoup
 import pandas as pd
+import sqlite3
+import hashlib
+import os
+import smtplib
+import time
+import random
+import urllib.request
+from datetime import datetime
+from io import BytesIO
 
-try:
-    import openpyxl
-    OPENPYXL_AVAILABLE = True
-except ImportError:
-    OPENPYXL_AVAILABLE = False
+# ReportLab Imports
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import colors
+from reportlab.lib.units import inch
 
-import logging
+# Plotly
+import plotly.graph_objects as go
+import plotly.express as px
 
-# === CONFIGURATION ===
-ref_pattern = re.compile(r'^\d+(\.\d+)*\b')
-logging.basicConfig(
-    filename='audit.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+# Email
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
-PLAYBOOKS_DIR = "playbooks"
-USERS_FILE = "users.json"
-Path(PLAYBOOKS_DIR).mkdir(exist_ok=True)
-Path(USERS_FILE).touch(exist_ok=True)
+# ==========================================
+# 1. CONFIGURATION & NIST MAPPING
+# ==========================================
+DB_FILE = "joval_portal.db"
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+SENDER_EMAIL = "joval.risk.portal@gmail.com"
+SENDER_PASSWORD = "your_app_password_here" 
 
-# === PAGE CONFIG & REMOVE ALL STREAMLIT BRANDING ===
-st.set_page_config(
-    page_title="Joval Wines NIST Playbook Tracker",
-    page_icon="wine",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# --- NIST Cybersecurity Framework (CSF) Functions ---
+NIST_FUNCTIONS = {
+    "IDENTIFY": "Develop an organizational understanding to manage cybersecurity risk to systems, assets, data, and capabilities.",
+    "PROTECT": "Develop and implement safeguards to ensure delivery of critical infrastructure services.",
+    "DETECT": "Develop and implement activities to identify the occurrence of a cybersecurity event.",
+    "RESPOND": "Develop and implement activities to take action regarding a detected cybersecurity incident.",
+    "RECOVER": "Develop and implement activities to maintain plans for resilience and to restore any capabilities or services impaired due to a cybersecurity incident."
+}
 
-# HIDE ALL STREAMLIT BRANDING
-hide_streamlit_style = """
-<style>
-    #MainMenu, footer, header, .stDeployButton, [data-testid="stToolbar"], 
-    [data-testid="stHeader"], [data-testid="stFooter"], [data-testid="stDecoration"],
-    .css-1d391kg, .css-1v0mbdj, .css-1y0t5a4, .css-1v3fvcr, .css-1v0mbdj a, 
-    .css-1v0mbdj button, .css-1v0mbdj img {display: none !important;}
-</style>
-"""
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+# ==========================================
+# 2. DATABASE ENGINE (Stable Direct Connection)
+# ==========================================
+def get_connection():
+    return sqlite3.connect(DB_FILE, check_same_thread=False)
 
-# === CUSTOM STYLES ===
-st.markdown(f"""
-<style>
-/* Tailwind CDN */
-@import url('https://cdn.tailwindcss.com');
-
-/* Core Colors */
-:root{{
-    --bg:#ffffff;
-    --text:#111111;
-    --muted:#666666;
-    --red:#800020;
-    --gold:#FFD700;
-    --blue-shadow:#4169E1;
-    --card-bg:#fafafa;
-    --border:#eaeaea;
-}}
-
-/* Global */
-html,body,.stApp{{background:var(--bg)!important;color:var(--text)!important;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;}}
-.stApp > footer,.stApp [data-testid="stToolbar"],.stDeployButton{{display:none!important;}}
-
-/* Header */
-.sticky-header{{
-    position:sticky;top:0;z-index:9999;
-    display:flex;align-items:center;justify-content:space-between;
-    padding:1.2rem 2rem;background:#fff;
-    border-bottom:1px solid var(--border);box-shadow:0 2px 8px rgba(0,0,0,.05);
-    min-height:120px;
-}}
-.logo-left{{height:160px;width:auto;}}
-.app-title{{font-size:2.4rem;font-weight:700;color:var(--text);margin:0;text-align:center;flex:1;}}
-.nist-text{{
-    font-size:2.8rem;
-    font-weight:900;
-    color:#000;
-    text-shadow: 1px 1px 2px var(--blue-shadow), 0 0 4px rgba(65,105,225,0.3);
-    letter-spacing:1px;
-    margin-right:8px;
-}}
-.nist-text sup{{font-size:1.2rem;color:#555;}}
-
-/* Section Titles */
-.section-title,
-.stExpander > div > div > div > label > div > span,
-.stExpander > div > div > div > label > div > div > span {{
-    font-size:1.9rem !important;
-    font-weight:700 !important;
-    color:var(--text) !important;
-    margin-bottom:0.5rem !important;
-}}
-.nist-incident-section {{
-    color:var(--red) !important;
-    font-size:1.9rem !important;
-    font-weight:700 !important;
-}}
-
-/* TOC Search */
-.toc-search input {{
-    width: 100%;
-    padding: 0.5rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-size: 0.9rem;
-    margin-bottom: 0.5rem;
-}}
-.toc-item {{display:block;padding:4px 0;color:#111;text-decoration:none;}}
-.toc-item:hover {{color:var(--red);font-weight:600;}}
-
-/* Smaller Expand/Collapse Buttons */
-button[kind="secondary"] {{
-    padding: 0.4rem 0.8rem !important;
-    font-size: 0.85rem !important;
-    min-height: 36px !important;
-}}
-
-/* Content */
-.content-wrap{{margin-left:280px;padding:2rem 2rem 6rem;}}
-.section-card{{
-    background:var(--card-bg);padding:1.5rem;border-radius:12px;
-    margin-bottom:1.5rem;box-shadow:0 2px 6px rgba(0,0,0,.04);
-    border:1px solid var(--border);
-}}
-
-/* Buttons */
-.stButton>button,.stDownloadButton>button{{
-    background:#000!important;color:#fff!important;
-    border-radius:8px;padding:0.75rem 1.5rem!important;
-    font-weight:600;font-size:1rem;
-    width:100%!important;min-height:52px;
-    text-align:center;margin:0.6rem 0;
-}}
-.stButton>button:hover,.stDownloadButton>button:hover{{opacity:.9;}}
-
-/* Progress */
-.progress-wrap{{height:12px;background:#e5e5e5;border-radius:999px;overflow:hidden;margin:1rem 0;}}
-.progress-fill{{height:100%;background:var(--red);transition:width .4s ease;}}
-</style>
-""", unsafe_allow_html=True)
-
-# === USER MANAGEMENT ===
-def load_users():
-    if os.path.exists(USERS_FILE):
-        try:
-            with open(USERS_FILE, "r") as f:
-                content = f.read().strip()
-                if content:
-                    return {k.lower(): v for k, v in json.loads(content).items()}
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-    admin_email = "admin@joval.com"
-    admin_hash = st.secrets.get("ADMIN_PASSWORD_HASH")
-    if not admin_hash:
-        st.error("ADMIN_PASSWORD_HASH not set in secrets.toml")
-        st.stop()
-    
-    default_admin = {admin_email: {"role": "admin", "hash": admin_hash}}
-    save_users(default_admin)
-    return default_admin
-
-def save_users(users):
-    with open(USERS_FILE, "w") as f:
-        json.dump({k.lower(): v for k, v in users.items()}, f, indent=2)
-
-def get_user_role(email):
-    users = load_users()
-    return users.get(email.lower(), {}).get("role", "user")
-
-def create_user(email, role, password):
-    users = load_users()
-    email = email.lower()
-    if email in users:
-        return False, "User already exists."
-    hash_pass = hashlib.sha256(password.encode()).hexdigest()
-    users[email] = {"role": role, "hash": hash_pass}
-    save_users(users)
-    logging.info(f"User created: {email}, Role: {role}")
-    return True, "User created successfully."
-
-def reset_user_password(email, password):
-    users = load_users()
-    email = email.lower()
-    if email not in users:
-        return False, "User not found."
-    hash_pass = hashlib.sha256(password.encode()).hexdigest()
-    users[email]["hash"] = hash_pass
-    save_users(users)
-    logging.info(f"Password reset: {email}")
-    return True, "Password reset successfully.", password
-
-def delete_user(email):
-    users = load_users()
-    email = email.lower()
-    if email in users:
-        del users[email]
-        save_users(users)
-        logging.info(f"User deleted: {email}")
-        return True, "User deleted successfully."
-    return False, "User not found."
-
-def update_user(old_email, new_email, new_role):
-    users = load_users()
-    old_email = old_email.lower()
-    new_email = new_email.lower()
-    if old_email not in users:
-        return False, "User not found."
-    if new_email != old_email and new_email in users:
-        return False, "New email already exists."
-    
-    user_data = users.pop(old_email)
-    user_data["role"] = new_role
-    users[new_email] = user_data
-    save_users(users)
-    logging.info(f"User updated: {old_email} → {new_email}, Role: {new_role}")
-    return True, "User updated successfully."
-
-def authenticate():
-    if 'login_attempts' not in st.session_state:
-        st.session_state.login_attempts = 0
-    if 'last_attempt' not in st.session_state:
-        st.session_state.last_attempt = None
-    if 'authenticated' not in st.session_state:
-        st.session_state.authenticated = False
-    if 'user' not in st.session_state:
-        st.session_state.user = None
-
-    if not st.session_state.authenticated:
-        st.title("Joval Wines NIST Playbook Tracker")
-        st.markdown("### Login Required")
-        st.markdown(get_logo(), unsafe_allow_html=True)
-        
-        username = st.text_input("Username", key="username")
-        password = st.text_input("Password", type="password", key="password")
-        
-        now = datetime.now()
-        if st.button("Login"):
-            if st.session_state.login_attempts >= 5:
-                if st.session_state.last_attempt and (now - st.session_state.last_attempt).seconds < 300:
-                    st.error("Too many failed attempts. Try again in 5 minutes.")
-                    st.stop()
-                else:
-                    st.session_state.login_attempts = 0
-            
-            users = load_users()
-            email = username if "@" in username else username + "@joval.com"
-            email = email.lower()
-            if email in users:
-                if hashlib.sha256(password.encode()).hexdigest() == users[email]["hash"]:
-                    st.session_state.authenticated = True
-                    display_name = username.split("@")[0].title() if "@" in username else username.title()
-                    st.session_state.user = {"email": email, "name": display_name, "role": users[email]["role"]}
-                    st.session_state.login_attempts = 0
-                    st.success("Logged in successfully!")
-                    st.rerun()
-                else:
-                    st.session_state.login_attempts += 1
-                    st.session_state.last_attempt = now
-                    st.error("Invalid credentials.")
-            else:
-                st.session_state.login_attempts += 1
-                st.session_state.last_attempt = now
-                st.error("Invalid credentials.")
-        st.stop()
-
-    if st.sidebar.button("Logout"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
-
-    return st.session_state.user
-
-# === ADMIN DASHBOARD ===
-def admin_dashboard(user):
-    if get_user_role(user["email"]) != "admin":
-        st.error("Access denied. Admin only.")
-        return
-
-    st.title("Admin Dashboard")
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Create User", "Reset Password", "List & Edit Users", "Delete User", "Upload Logo/Playbook"])
-
-    users = load_users()
-    user_emails = sorted(users.keys())
-
-    with tab1:
-        st.subheader("Create New User")
-        email_input = st.text_input("User Email")
-        email = email_input if "@" in email_input else email_input + "@joval.com"
-        role = st.selectbox("Role", ["user", "admin"], key="create_role")
-        generate_pass = st.checkbox("Generate Random Password", value=True)
-        if generate_pass:
-            password = secrets.token_urlsafe(16)
-            st.code(password, language=None)
-            st.info("Copy this password now — it will not be shown again.")
-        else:
-            password = st.text_input("Set Password", type="password")
-        if st.button("Create User"):
-            if email and password:
-                success, msg = create_user(email, role, password)
-                if success:
-                    st.success(msg)
-                else:
-                    st.error(msg)
-            else:
-                st.error("Fill all fields.")
-
-    with tab2:
-        st.subheader("Reset User Password")
-        if not user_emails:
-            st.info("No users to reset.")
-        else:
-            selected_user = st.selectbox("Select User", user_emails, key="reset_select")
-            generate_pass = st.checkbox("Generate Random Password", value=True, key="reset_gen2")
-            if generate_pass:
-                password = secrets.token_urlsafe(16)
-                st.code(password, language=None)
-            else:
-                password = st.text_input("Set New Password", type="password", key="reset_custom2")
-            if st.button("Reset Password"):
-                if password:
-                    success, msg, new_pass = reset_user_password(selected_user, password)
-                    if success:
-                        st.success(msg)
-                        if generate_pass:
-                            st.code(new_pass, language=None)
-                            st.info("New password shown above — copy it now.")
-                    else:
-                        st.error(msg)
-                else:
-                    st.error("Enter a password.")
-
-    with tab3:
-        st.subheader("List & Edit Users")
-        if not users:
-            st.info("No users.")
-        else:
-            user_list = [{"Email": k, "Role": v["role"]} for k, v in users.items()]
-            df = pd.DataFrame(user_list)
-            st.table(df)
-
-            st.markdown("---")
-            st.markdown("### Edit User")
-            edit_email = st.selectbox("Select User to Edit", user_emails, key="edit_select")
-            current_role = users[edit_email]["role"]
-            new_email_input = st.text_input("New Email (leave blank to keep)", value=edit_email, key="edit_email")
-            new_role = st.selectbox("New Role", ["user", "admin"], index=0 if current_role == "user" else 1, key="edit_role")
-
-            if st.button("Update User"):
-                new_email = new_email_input if new_email_input else edit_email
-                if new_email != edit_email or new_role != current_role:
-                    success, msg = update_user(edit_email, new_email, new_role)
-                    if success:
-                        st.success(msg)
-                        st.rerun()
-                    else:
-                        st.error(msg)
-                else:
-                    st.info("No changes made.")
-
-    with tab4:
-        st.subheader("Delete User")
-        if not user_emails:
-            st.info("No users to delete.")
-        else:
-            delete_email = st.selectbox("Select User to Delete", user_emails, key="delete_select")
-            if st.button("Delete User"):
-                success, msg = delete_user(delete_email)
-                if success:
-                    st.success(msg)
-                    st.rerun()
-                else:
-                    st.error(msg)
-
-    with tab5:
-        st.subheader("Upload Custom Logo")
-        uploaded_logo = st.file_uploader("Upload Logo", type=["png", "jpg", "jpeg"])
-        if uploaded_logo:
-            st.session_state.logo_b64 = base64.b64encode(uploaded_logo.read()).decode()
-            st.success("Logo uploaded!")
-            st.rerun()
-        st.subheader("Upload New Playbook")
-        uploaded_playbook = st.file_uploader("Upload Word Doc", type=["docx"])
-        if uploaded_playbook:
-            file_path = os.path.join(PLAYBOOKS_DIR, uploaded_playbook.name)
-            with open(file_path, "wb") as f:
-                f.write(uploaded_playbook.getbuffer())
-            st.success(f"Playbook uploaded!")
-
-    if st.button("Back to Main App"):
-        st.session_state.admin_page = False
-        st.rerun()
-
-# === UTILITIES ===
-def stable_key(playbook_name: str, title: str, level: int) -> str:
-    base = f"{playbook_name}||{level}||{title}"
-    return "sec_" + hashlib.md5(base.encode("utf-8")).hexdigest()
-
-@st.cache_data
-def progress_filepath(playbook_name: str) -> str:
-    base = os.path.splitext(playbook_name)[0]
-    return os.path.join(PLAYBOOKS_DIR, f"{base}_progress.json")
-
-@st.cache_data(show_spinner=False)
-def load_progress(playbook_name: str):
-    path = progress_filepath(playbook_name)
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-                return (
-                    data.get("completed", {}),
-                    data.get("comments", {}),
-                    data.get("expanders", {})
-                )
-        except Exception as e:
-            st.warning(f"Failed to load progress: {e}")
-            return {}, {}, {}
-    return {}, {}, {}
-
-def save_progress(playbook_name: str, completed_map: dict, comments_map: dict, expanders_map: dict):
-    rec = {
-        "playbook": playbook_name,
-        "timestamp": datetime.now().isoformat(),
-        "version": "1.0",
-        "completed": completed_map,
-        "comments": comments_map,
-        "expanders": expanders_map
-    }
-    path = progress_filepath(playbook_name)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(rec, fh, indent=2)
-
-def safe_image_display(src: str) -> bool:
-    if not src:
-        return False
+def run_query(query, params=None, is_write=False):
+    conn = get_connection()
     try:
-        st.markdown(f"<img style='max-width:90%;height:auto;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.6);margin:12px 0;display:block;' src='{src}'/>", unsafe_allow_html=True)
-        return True
-    except Exception:
-        try:
-            st.image(src)
-            return True
-        except Exception:
-            return False
+        c = conn.cursor()
+        if is_write:
+            c.execute(query, params or ())
+            conn.commit()
+            return c.rowcount
+        else:
+            return pd.read_sql(query, conn, params=params)
+    except Exception as e:
+        print(f"Database Error: {e}")
+        return 0 if is_write else pd.DataFrame()
+    finally:
+        conn.close()
 
-def calculate_badges(pct: int) -> List[str]:
-    if pct >= 100: return ["Gold Star"]
-    elif pct >= 80: return ["Silver Shield"]
-    elif pct >= 50: return ["Bronze Medal"]
-    elif pct >= 25: return ["Progress Starter"]
-    elif pct > 0: return ["Just Started"]
-    else: return ["Ready to Begin"]
-
-def save_feedback(rating: int, comments: str):
-    feedback_data = {"rating": rating, "comments": comments, "timestamp": datetime.now().isoformat()}
-    with open("feedback.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps(feedback_data) + "\n")
-
-def show_feedback():
-    with st.expander("Provide Feedback"):
-        with st.form("feedback_form"):
-            rating = st.slider("Rate this session (1-5)", 1, 5, 3)
-            feedback_comments = st.text_area("Additional feedback")
-            if st.form_submit_button("Submit"):
-                save_feedback(rating, feedback_comments)
-                st.success("Feedback submitted! Thank you.")
-
-def get_logo():
-    if "logo_b64" not in st.session_state:
-        st.session_state.logo_b64 = None
-    if st.session_state.logo_b64:
-        return f'<img src="data:image/png;base64,{st.session_state.logo_b64}" class="logo-left" alt="Custom Logo" />'
-    default_logo_path = "logo.png"
-    if os.path.exists(default_logo_path):
-        with open(default_logo_path, "rb") as f:
-            logo_bytes = f.read()
-            return f'<img src="data:image/png;base64,{base64.b64encode(logo_bytes).decode()}" class="logo-left" alt="Default Logo" />'
-    return '<div class="logo-left"></div>'
-
-def theme_selector():
-    theme = st.sidebar.selectbox("Select Theme", ["Light", "Dark"], index=0, key="theme_selector")
-    if theme == "Dark":
-        st.markdown("""
-        <style>
-        :root { --bg:#000; --text:#fff; --muted:#aaa; --card-bg:rgba(255,255,255,0.02); --border:rgba(255,255,255,0.1); }
-        html, body, .stApp { background:var(--bg)!important; color:var(--text)!important; }
-        .sticky-header, .bottom-toolbar { background:rgba(0,0,0,0.95); border-color:var(--border); }
-        .section-card { background:var(--card-bg); border-color:var(--border); }
-        .progress-wrap { background:rgba(255,255,255,0.1); }
-        .nist-text { color:#fff; text-shadow: 1px 1px 2px #4169E1, 0 0 4px rgba(65,105,225,0.5); }
-        .section-title, .nist-incident-section { color:#fff !important; }
-        </style>
-        """, unsafe_allow_html=True)
-    return theme
-
-@st.cache_data(ttl=300)
-def export_to_excel(completed_map: Dict, comments_map: Dict, selected_playbook: str, bulk_export: bool = False) -> bytes:
-    if not OPENPYXL_AVAILABLE:
-        return b""
-    df_completed = pd.DataFrame(list(completed_map.items()), columns=["Task_Key", "Status"])
-    df_comments = pd.DataFrame(list(comments_map.items()), columns=["Task_Key", "Comment"])
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_completed.to_excel(writer, sheet_name="Progress", index=False)
-        df_comments.to_excel(writer, sheet_name="Comments", index=False)
-        if bulk_export:
-            for pb in playbooks:
-                if pb != selected_playbook:
-                    comp, _ = load_progress(pb)
-                    df_pb = pd.DataFrame(list(comp.items()), columns=["Task_Key", "Status"])
-                    sheet_name = re.sub(r'[^\w\-_]', '_', pb.replace('.docx', ''))[:31]
-                    df_pb.to_excel(writer, sheet_name=sheet_name, index=False)
-    return output.getvalue()
-
-@st.cache_data
-def export_to_csv(completed_map: Dict, comments_map: Dict, selected_playbook: str) -> bytes:
-    df = pd.DataFrame({
-        "Task_Key": list(completed_map.keys()) + list(comments_map.keys()),
-        "Status": [str(completed_map.get(k, '')) for k in completed_map.keys()] + [''] * len(comments_map),
-        "Comment": [''] * len(completed_map) + [str(v) for v in comments_map.values()]
-    })
-    return df.to_csv(index=False).encode('utf-8')
-
-# === PLAYBOOK PARSING ===
-@st.cache_data(hash_funcs={Path: lambda p: str(p)})
-def parse_playbook_cached(path: str) -> List[Dict[str, Any]]:
-    with open(path, "rb") as fh:
-        result = mammoth.convert_to_html(fh)
-        html = result.value
-    soup = BeautifulSoup(html, "html.parser")
-
-    exclude_terms = ["table of contents", "document control", "document revision", "assumptions", "disclaimer"]
-    def excluded(text: str) -> bool:
-        if not text:
-            return False
-        tl = text.strip().lower()
-        return any(ex in tl for ex in exclude_terms)
-
-    sections = []
-    stack = []
-
-    for tag in soup.find_all(['h1','h2','h3','h4','p','table','img']):
-        if tag.name.startswith('h') and tag.name[1:].isdigit():
-            title = tag.get_text().strip()
-            if excluded(title):
-                continue
-            level = int(tag.name[1])
-            node = {"title": title, "level": level, "content": [], "subs": []}
-            while stack and stack[-1]["level"] >= level:
-                stack.pop()
-            if stack:
-                stack[-1]["subs"].append(node)
-            else:
-                sections.append(node)
-            stack.append(node)
-        elif tag.name == 'p':
-            text = tag.get_text(separator="\n").strip()
-            if text and stack:
-                stack[-1]["content"].append({"type": "text", "value": text})
-        elif tag.name == 'img':
-            src = tag.get("src", "")
-            if src and stack:
-                stack[-1]["content"].append({"type": "image", "value": src})
-        elif tag.name == 'table':
-            rows = [[td.get_text(separator="\n").strip() for td in tr.find_all(["td","th"])] for tr in tag.find_all("tr")]
-            if rows and stack:
-                stack[-1]["content"].append({"type": "table", "value": rows})
-
-    def reconstruct_tables_in_section(section):
-        contents = section.get("content", [])
-        i = 0
-        new_contents = []
-        header_keywords = ["reference", "step", "description", "ownership", "responsibility"]
-        owner_keywords = ["incident response team", "irt", "ownership", "responsibility", "it team leadership", "risk management team", "grc"]
-        while i < len(contents):
-            item = contents[i]
-            if item["type"] != "text":
-                new_contents.append(item)
-                i += 1
-                continue
-            txt = item["value"].strip()
-            txt_lower = txt.lower()
-            keyword_count = sum(1 for word in header_keywords if word in txt_lower)
-            is_header_like = keyword_count >= 2
-            if is_header_like or ref_pattern.match(txt):
-                headers = ["Reference", "Step", "Description", "Ownership/Responsibility"]
-                rows = []
-                current_ref = current_step = ""
-                current_desc_parts = []
-                j = i if not is_header_like else i + 1
-                while j < len(contents) and contents[j]["type"] == "text":
-                    txt_j = contents[j]["value"].strip()
-                    if ref_pattern.match(txt_j):
-                        if current_ref:
-                            desc = " ".join(current_desc_parts)
-                            owner = current_desc_parts.pop() if current_desc_parts and any(p in current_desc_parts[-1].lower() for p in owner_keywords) else ""
-                            rows.append([current_ref, current_step, desc, owner])
-                            current_desc_parts = []
-                        match_obj = ref_pattern.match(txt_j)
-                        current_ref = match_obj.group(0)
-                        current_step = txt_j[match_obj.end():].strip()
-                    else:
-                        current_desc_parts.append(txt_j)
-                    j += 1
-                if current_ref:
-                    desc = " ".join(current_desc_parts)
-                    owner = current_desc_parts.pop() if current_desc_parts and any(p in current_desc_parts[-1].lower() for p in owner_keywords) else ""
-                    rows.append([current_ref, current_step, desc, owner])
-                if rows:
-                    new_contents.append({"type": "table", "value": [headers] + rows})
-                i = j
-            else:
-                new_contents.append(item)
-                i += 1
-        section["content"] = new_contents
-
-    def walk_and_reconstruct(nodes):
-        for n in nodes:
-            reconstruct_tables_in_section(n)
-            if n.get("subs"):
-                walk_and_reconstruct(n["subs"])
-
-    walk_and_reconstruct(sections)
-
-    def prune(node):
-        kept_subs = [sub for sub in node.get("subs", []) if prune(sub)]
-        node["subs"] = kept_subs
-        return bool(node.get("content")) or bool(kept_subs)
-
-    return [s for s in sections if prune(s)]
-
-# === RENDERING ===
-ACTION_HEADERS = {"reference","ref","step","description","ownership","responsibility","owner","responsible"}
-
-def is_action_table(rows: List[List[str]]) -> bool:
-    if not rows:
-        return False
-    headers = [h.strip().lower() for h in rows[0]]
-    hits = sum(1 for h in headers if any(k in h for k in ACTION_HEADERS))
-    return hits >= 2 or (len(rows[0]) >= 4 and ref_pattern.match(rows[0][0].strip()))
-
-# Global counter for progress
-task_counter = {"total": 0, "done": 0}
-
-def render_action_table(playbook_name, sec_key, rows, completed_map, comments_map, autosave, table_index=0):
-    global task_counter
-    default_headers = ["Reference", "Step", "Description", "Ownership/Responsibility"]
-    headers = rows[0] if len(rows) > 0 and not ref_pattern.match(rows[0][0].strip() if rows[0] else "") else default_headers
-    data_rows = rows[1:] if len(rows) > 1 else rows
-    for row in data_rows:
-        while len(row) < 4:
-            row.append("")
-
-    task_counter["total"] += len(data_rows)
-
-    st.caption("Mark tasks complete and add notes.")
-    cols = st.columns([1, 2, 4, 2, 1, 2])
-    for i, h in enumerate(["Ref", "Step", "Desc", "Owner", "Done", "Comment"]):
-        cols[i].write(h)
-
-    changed = False
-    table_key = f"{sec_key}::tbl::{table_index}"
-    for ridx, row in enumerate(data_rows):
-        row_key = f"{table_key}::row::{ridx}"
-        comment_key = f"{row_key}::comment"
-        ref = row[0]; step = row[1]; desc = " ".join(row[2:-1]); owner = row[-1]
-        prev_val = completed_map.get(row_key, False)
-        prev_comment = comments_map.get(comment_key, "")
-
-        cb_key = f"cb_{playbook_name}_{sec_key}_{table_index}_{ridx}"
-        ci_key = f"ci_{playbook_name}_{sec_key}_{table_index}_{ridx}"
-
-        cols = st.columns([1, 2, 4, 2, 1, 2])
-        cols[0].write(ref); cols[1].write(step); cols[2].write(desc); cols[3].write(owner)
-        new_val = cols[4].checkbox("", value=prev_val, key=cb_key)
-        new_comment = cols[5].text_input("", value=prev_comment, key=ci_key, label_visibility="collapsed")
-
-        if new_val != prev_val:
-            completed_map[row_key] = new_val
-            changed = True
-            if new_val:
-                task_counter["done"] += 1
-            else:
-                task_counter["done"] -= 1
-        if new_comment != prev_comment:
-            comments_map[comment_key] = new_comment
-            changed = True
-
-    if autosave and changed:
-        save_progress(playbook_name, completed_map, comments_map, st.session_state.get("expanders", {}))
-
-def render_generic_table(rows: List[List[str]]):
-    if len(rows) > 1:
-        df = pd.DataFrame(rows[1:], columns=rows[0])
-    else:
-        df = pd.DataFrame(rows)
-    st.dataframe(df, use_container_width=True, hide_index=True)
-
-def render_section_content(section, playbook_name, completed_map, comments_map, autosave, sec_key, is_sub=False):
-    table_idx = 0
-    for item in section.get("content", []):
-        t = item.get("type")
-        if t == "text":
-            text = item.get("value", "").replace("\n", "<br/>")
-            st.markdown(f'<div style="font-size:1.1rem;line-height:1.6;">{text}</div>', unsafe_allow_html=True)
-        elif t == "image":
-            safe_image_display(item.get("value", ""))
-        elif t == "table":
-            rows = item.get("value", [])
-            if rows:
-                if is_action_table(rows):
-                    render_action_table(playbook_name, sec_key, rows, completed_map, comments_map, autosave, table_idx)
-                    table_idx += 1
-                else:
-                    render_generic_table(rows)
-    for sub in section.get("subs", []):
-        sub_key = stable_key(playbook_name, sub["title"], sub["level"])
-        st.markdown(f"<div id='{sub_key}' style='margin-top:12px;'><strong style='color:var(--text);'>{sub['title']}</strong></div>", unsafe_allow_html=True)
-        render_section_content(sub, playbook_name, completed_map, comments_map, autosave, sub_key, True)
-    if not is_sub:
-        st.markdown("<div style='font-weight:700;margin-top:12px;margin-bottom:6px;'>Comments / Notes</div>", unsafe_allow_html=True)
-        prev_sec_comment = comments_map.get(sec_key, "")
-        sec_comment_key = f"sec_cmt_{playbook_name}_{sec_key}"
-        new_sec_comment = st.text_area("", value=prev_sec_comment, key=sec_comment_key, height=120, label_visibility="collapsed")
-        if new_sec_comment != prev_sec_comment:
-            comments_map[sec_key] = new_sec_comment
-            if autosave:
-                save_progress(playbook_name, completed_map, comments_map, st.session_state.get("expanders", {}))
-
-def get_expander_state_key(playbook_name: str, sec_key: str) -> str:
-    return f"exp_{playbook_name}_{sec_key}"
-
-def load_expander_states(playbook_name: str, sections: List[Dict]) -> Dict[str, bool]:
-    _, _, saved_states = load_progress(playbook_name)
-    states = {}
-    for sec in sections:
-        key = stable_key(playbook_name, sec["title"], sec["level"])
-        state_key = get_expander_state_key(playbook_name, key)
-        states[key] = saved_states.get(state_key, False)
-        for sub in sec.get("subs", []):
-            sub_key = stable_key(playbook_name, sub["title"], sub["level"])
-            sub_state_key = get_expander_state_key(playbook_name, sub_key)
-            states[sub_key] = saved_states.get(sub_state_key, False)
-    return states
-
-def save_expander_state(playbook_name: str, sec_key: str, state: bool):
-    completed, comments, expanders = load_progress(playbook_name)
-    expanders[get_expander_state_key(playbook_name, sec_key)] = state
-    save_progress(playbook_name, completed, comments, expanders)
-
-def render_section(section, playbook_name, completed_map, comments_map, autosave, expander_states):
-    sec_key = stable_key(playbook_name, section["title"], section["level"])
-    title_class = "nist-incident-section" if section["title"] == "NIST Incident Handling Categories" else "section-title"
-    st.markdown(f"<div class='{title_class}' id='{sec_key}'>{section['title']}</div>", unsafe_allow_html=True)
+def init_db():
+    conn = get_connection()
+    c = conn.cursor()
     
-    state_key = get_expander_state_key(playbook_name, sec_key)
-    if state_key not in st.session_state:
-        st.session_state[state_key] = False
+    # Core Tables
+    c.execute("""CREATE TABLE IF NOT EXISTS companies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, email TEXT UNIQUE, password TEXT, role TEXT, company_id INTEGER)""")
+    
+    # Risks Table with Enterprise Columns (remediation, jira, NIST categories)
+    c.execute("""CREATE TABLE IF NOT EXISTS risks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER, title TEXT, description TEXT, 
+        category TEXT, likelihood TEXT, impact TEXT, status TEXT, submitted_by TEXT, submitted_date TEXT, 
+        risk_score INTEGER, approver_email TEXT, approver_notes TEXT, approved_by TEXT, approved_date TEXT, 
+        workflow_step TEXT, remediation_plan TEXT, remediation_owner TEXT, remediation_date TEXT, jira_ticket_id TEXT
+    )""")
+    
+    c.execute("""CREATE TABLE IF NOT EXISTS evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, risk_id INTEGER, company_id INTEGER, file_name TEXT, upload_date TEXT, uploaded_by TEXT, file_data BLOB)""")
+    
+    # Vendor Tables with Scoring
+    c.execute("""CREATE TABLE IF NOT EXISTS vendors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, contact_email TEXT, risk_level TEXT, last_assessment_date TEXT, company_id INTEGER, vendor_score INTEGER)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS vendor_questionnaire (id INTEGER PRIMARY KEY AUTOINCREMENT, vendor_id INTEGER, question_id INTEGER, answer TEXT, answered_date TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS vendor_questions (id INTEGER PRIMARY KEY AUTOINCREMENT, question TEXT, weight INTEGER, company_id INTEGER)""")
+    
+    # Audit Trail
+    c.execute("""CREATE TABLE IF NOT EXISTS audit_trail (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, user_email TEXT, action TEXT, details TEXT)""")
 
-    with st.expander("Expand section", expanded=st.session_state[state_key]):
-        current_state = st.session_state[state_key]
-        saved_state = expander_states.get(sec_key, False)
-        if current_state != saved_state:
-            save_expander_state(playbook_name, sec_key, current_state)
-            expander_states[sec_key] = current_state
+    # Safe Column Migration (Ensure all necessary columns exist)
+    cols = [("risks", "remediation_plan", "TEXT"), ("risks", "jira_ticket_id", "TEXT"), 
+            ("vendors", "vendor_score", "INTEGER"), ("risks", "remediation_owner", "TEXT"), 
+            ("risks", "remediation_date", "TEXT"), ("vendor_questions", "weight", "INTEGER")]
+    for t, c_name, d_type in cols:
+        try: c.execute(f"ALTER TABLE {t} ADD COLUMN {c_name} {d_type}")
+        except: pass
+
+    # Seed Data (Admin/Approvers)
+    c.execute("SELECT count(*) FROM companies")
+    if c.fetchone()[0] == 0:
+        companies = ["Joval Wines", "Joval Family Wines", "BNV", "BAM"]
+        for comp in companies: c.execute("INSERT OR IGNORE INTO companies (name) VALUES (?)", (comp,))
         
-        render_section_content(section, playbook_name, completed_map, comments_map, autosave, sec_key)
+        c.execute("SELECT id, name FROM companies")
+        rows = c.fetchall()
+        hashed = hashlib.sha256("Joval2025".encode()).hexdigest()
+        
+        for cid, cname in rows:
+            # Create a dedicated Approver for each company
+            c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)", 
+                      (f"approver_{cname.lower().replace(' ', '')}", f"approver@{cname.lower().replace(' ', '')}.com.au", hashed, "Approver", cid))
+            # Create a standard User for Joval Wines
+            if cid == 1:
+                c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)", 
+                          ("user_joval", "user@jovalwines.com.au", hashed, "User", cid))
+            # Create Admin
+            if cid == 1:
+                c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)", 
+                          ("admin", "admin@jovalwines.com.au", hashed, "Admin", cid))
+    
+    # Seed Questions (NIST aligned - relevant to vendor risk)
+    c.execute("SELECT count(*) FROM vendor_questions")
+    if c.fetchone()[0] == 0:
+        # Example questions mapped loosely to NIST CSF
+        qs = [("Does the vendor provide visibility into their security controls? (IDENTIFY)", 10), 
+              ("Is data processed by the vendor encrypted at rest and in transit? (PROTECT)", 15), 
+              ("Does the vendor have a SOC/monitoring function? (DETECT)", 10), 
+              ("Does the vendor have a documented Incident Response Plan? (RESPOND)", 10)]
+        for q, w in qs: c.execute("INSERT INTO vendor_questions (question, weight, company_id) VALUES (?, ?, ?)", (q, w, 1))
 
-# === MAIN APP ===
-def main():
-    user = authenticate()
-    st.sidebar.info(f"Logged in as: **{user['name']}** – *{get_user_role(user['email'])}*")
+    conn.commit()
+    conn.close()
 
-    if get_user_role(user["email"]) == "admin":
-        if st.sidebar.button("Admin Dashboard"):
-            st.session_state.admin_page = True
+if not os.path.exists(DB_FILE):
+    init_db()
+else:
+    init_db()
+
+# ==========================================
+# 3. HELPERS (Including Audit Logging and AI)
+# ==========================================
+def calculate_risk_score(likelihood, impact):
+    scores = {"Low": 1, "Medium": 2, "High": 3}
+    return scores.get(likelihood, 1) * scores.get(impact, 1)
+
+def get_risk_color(score):
+    if score >= 7: return "red"
+    elif score >= 4: return "orange"
+    else: return "green"
+
+# --- AUDIT TRAIL LOGGING ---
+def log_action(user_email, action, details=""):
+    run_query("INSERT INTO audit_trail (timestamp, user_email, action, details) VALUES (?, ?, ?, ?)", 
+              (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_email, action, details), is_write=True)
+
+# --- AI AUTO-CLASSIFY (Simulation) ---
+def ai_classify_risk(text):
+    text = text.lower()
+    if any(x in text for x in ["phish", "email", "scam"]): return "DETECT", "High", "High"
+    if any(x in text for x in ["malware", "virus", "patch"]): return "PROTECT", "Medium", "High"
+    if any(x in text for x in ["backup", "loss"]): return "RECOVER", "Medium", "Medium"
+    if any(x in text for x in ["asset", "inventory", "policy"]): return "IDENTIFY", "Low", "Medium"
+    return "IDENTIFY", "Low", "Low"
+
+def generate_pdf_report(title, content):
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.2*inch)
+    styles = getSampleStyleSheet()
+    story = []
+    try:
+        # Placeholder for Joval Wines Logo - uses a publicly available image
+        with urllib.request.urlopen("https://jovalwines.com.au/wp-content/uploads/2020/06/Joval-Wines-Logo.png") as r:
+            img = Image(BytesIO(r.read()), width=2*inch, height=0.6*inch)
+            story.append(img)
+    except:
+        story.append(Paragraph("JOVAL WINES", styles['Title']))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(title, styles['Heading1']))
+    story.append(Paragraph(f"Generated: {datetime.now().strftime('%d %B %Y')}", styles['Normal']))
+    story.append(Spacer(1, 20))
+    if isinstance(content, pd.DataFrame):
+        # Format for display in PDF (truncate long strings)
+        content_str = content.astype(str).applymap(lambda x: (x[:50] + '...') if len(x) > 50 else x)
+        data = [content.columns.tolist()] + content_str.values.tolist()
+        table = Table(data)
+        table.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1a1a1a')), ('TEXTCOLOR',(0,0),(-1,0),colors.white), ('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('FONTSIZE', (0,0), (-1,-1), 8)]))
+        story.append(table)
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+def send_email(to_email, subject, body):
+    # This is a simulated email function as credentials are not guaranteed
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain'))
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        # server.login(SENDER_EMAIL, SENDER_PASSWORD) # Requires valid credentials
+        # server.send_message(msg)
+        server.quit()
+    except: pass
+    
+# ==========================================
+# 4. UI SETUP
+# ==========================================
+st.set_page_config(page_title="Joval Risk Portal", layout="wide")
+st.markdown("""
+<style>
+    .header {background: #1a1a1a; color: white; padding: 2rem; text-align: center;}
+    .metric-card {background: white; padding: 1.5rem; border-radius: 12px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
+    .clickable-risk {cursor: pointer; padding: 0.75rem; border-radius: 8px; margin: 0.25rem 0;}
+    .approval-badge {background: #e6f7ff; padding: 0.25rem 0.5rem; border-radius: 12px; font-size: 0.8rem;}
+    /* NIST hints style */
+    .nist-hint {background-color: #f0f8ff; border-left: 5px solid #007bff; padding: 10px; border-radius: 4px; margin-bottom: 15px;}
+</style>""", unsafe_allow_html=True)
+st.markdown('<div class="header"><h1>JOVAL WINES</h1><p>Risk Management Portal</p></div>', unsafe_allow_html=True)
+
+# ==========================================
+# 5. LOGIN
+# ==========================================
+if "user" not in st.session_state:
+    with st.sidebar:
+        st.markdown("### Login")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        if st.button("Login"):
+            hashed = hashlib.sha256(password.encode()).hexdigest()
+            users = run_query("SELECT * FROM users WHERE username=? AND password=?", (username, hashed))
+            if not users.empty:
+                st.session_state.user = users.iloc[0].to_list()
+                log_action(st.session_state.user[2], "LOGIN", "User logged in successfully.")
+                st.rerun()
+            else:
+                st.error("Invalid credentials")
+    st.stop()
+
+user = st.session_state.user
+comp_df = run_query("SELECT name FROM companies WHERE id=?", (user[5],))
+user_company_name = comp_df.iloc[0]['name'] if not comp_df.empty else "Unknown"
+DEFAULT_PASSWORD_HASH = hashlib.sha256("Reset2025".encode()).hexdigest()
+
+# ==========================================
+# 6. SIDEBAR
+# ==========================================
+with st.sidebar:
+    st.markdown("### Playbook Tracker")
+    # FIX: Updated Playbook Tracker link
+    st.markdown("[**Open Playbook Tracker App**](https://joval-wines-nist-playbook-tracker.streamlit.app/)")
+    st.markdown("---")
+    st.markdown(f"**{user[1]}** • {user_company_name}")
+    st.markdown("---")
+    pages = ["Dashboard", "Log a new Risk", "Evidence Vault", "Vendor Management", "Reports"]
+    if user[4] == "Approver": pages.insert(1, "My Approvals")
+    if user[4] == "Admin": pages += ["Audit Trail", "Admin Panel"]
+    for p in pages:
+        if st.button(p, key=f"nav_{p}"):
+            st.session_state.page = p
             st.rerun()
-    if st.session_state.get('admin_page', False):
-        admin_dashboard(user)
-        return
 
-    if 'gamify' not in st.session_state: st.session_state.gamify = False
-    if 'gamify_count' not in st.session_state: st.session_state.gamify_count = 0
+page = st.session_state.get("page", "Dashboard")
 
-    theme_selector()
-
-    logo_html = get_logo()
-    st.markdown(f"""
-    <div class="sticky-header">
-        {logo_html}
-        <div class="app-title">Joval Wines NIST Playbook Tracker</div>
-        <div style="display:flex;align-items:center;">
-            <span class="nist-text">NIST<sup>©</sup></span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # === SIDEBAR CONTROLS ===
-    st.sidebar.markdown('<div class="sidebar-header">Controls</div>', unsafe_allow_html=True)
-    autosave = st.sidebar.checkbox("Auto-save progress", value=True)
-    bulk_export = st.sidebar.checkbox("Bulk export")
-    st.sidebar.markdown("---")
-    st.sidebar.markdown('<div class="sidebar-subheader">NIST Resources</div>', unsafe_allow_html=True)
-    resources = {
-        "Cybersecurity Framework":"https://www.nist.gov/cyberframework",
-        "Incident Response (SP 800-61 Rev2)":"https://csrc.nist.gov/publications/detail/sp/800-61/rev-2/final",
-        "Risk Management Framework":"https://csrc.nist.gov/projects/risk-management",
-        "NICE Resources":"https://www.nist.gov/itl/applied-cybersecurity/nice/resources",
-    }
-    sel = st.sidebar.selectbox("Choose resource", ["(none)"] + list(resources.keys()))
-    if sel != "(none)":
-        st.sidebar.markdown(f"[Open → {sel}]({resources[sel]})", unsafe_allow_html=True)
-
-    st.sidebar.markdown("---")
-    st.sidebar.markdown('<div style="font-weight:700;font-size:1.1rem;">© Joval Wines</div>', unsafe_allow_html=True)
-    st.sidebar.markdown('<div style="font-weight:700;font-size:1.1rem;">Better Never Stops</div>', unsafe_allow_html=True)
-
-    # === PLAYBOOK SELECT ===
-    global playbooks
-    playbooks = sorted([f for f in os.listdir(PLAYBOOKS_DIR) if f.lower().endswith(".docx")])
-    if not playbooks:
-        st.error(f"No .docx files found in '{PLAYBOOKS_DIR}'.")
-        return
-
-    st.markdown("<h2 style='margin-top:2rem;'>Select Playbook</h2>", unsafe_allow_html=True)
-    selected_playbook = st.selectbox(
-        "Playbook",
-        options=[""] + playbooks,
-        format_func=lambda x: f"**{x}**" if x else "",
-        index=0,
-        key="select_playbook"
-    )
-
-    if not selected_playbook:
-        st.markdown("""
-        <div style="text-align:center;margin:4rem 0;font-size:1.3rem;color:#800020;font-weight:600;">
-            Please select a playbook from the dropdown above to begin.
-        </div>
-        """, unsafe_allow_html=True)
-        st.stop()
-
-    # === INSTRUCTIONAL BANNER ===
-    st.markdown("""
-    <div style="background:#fff3cd;padding:1.2rem;border-radius:8px;border:2px solid #d9534f;
-                text-align:center;font-size:1.4rem;font-weight:600;color:#d9534f;margin:1.5rem 0;">
-        In the event of a cyber incident select the required playbook and complete each required step
-        in the <strong>NIST "Incident Handling Categories"</strong> section.
-    </div>
-    """, unsafe_allow_html=True)
-
-    # === LOAD PLAYBOOK ===
-    parsed_key = f"parsed::{selected_playbook}"
-    if parsed_key not in st.session_state:
-        st.session_state[parsed_key] = parse_playbook_cached(os.path.join(PLAYBOOKS_DIR, selected_playbook))
-    sections = st.session_state[parsed_key]
-
-    completed_map, comments_map, _ = load_progress(selected_playbook)
-    expander_states = load_expander_states(selected_playbook, sections)
-
-    # === RESET PROGRESS COUNTER ===
-    task_counter["total"] = 0
-    task_counter["done"] = 0
-
-    # === TOC WITH SEARCH ===
-    toc_items = []
-    def collect_toc(secs):
-        for s in secs:
-            key = stable_key(selected_playbook, s["title"], s["level"])
-            toc_items.append({"title": s["title"], "anchor": key})
-            if s.get("subs"):
-                collect_toc(s["subs"])
-    collect_toc(sections)
-
-    search_term = st.text_input("Search sections...", key="toc_search", label_visibility="collapsed")
-    filtered_toc = [
-        item for item in toc_items
-        if search_term.lower() in item["title"].lower()
-    ] if search_term else toc_items
-
-    toc_links = "".join(
-        f'<a href="#{item["anchor"]}" class="toc-item" onclick="document.getElementById(\'{item["anchor"]}\').scrollIntoView();return false;">{item["title"]}</a>'
-        for item in filtered_toc
-    )
-    toc_html = f"""
-    <div style="position:fixed;left:1rem;top:110px;bottom:100px;width:250px;background:#fff;padding:1rem;border-radius:8px;overflow:auto;box-shadow:0 2px 6px rgba(0,0,0,.04);border:1px solid #eaeaea;">
-        <div class="toc-search"><input type="text" placeholder="Search sections..." value="{search_term}" /></div>
-        <h4 style="margin:0.5rem 0 0.75rem 0;">Table of Contents</h4>
-        <div style="max-height:calc(100% - 80px);overflow-y:auto;">
-            {toc_links if toc_links else '<em>No matches</em>'}
-        </div>
-    </div>
-    """
-    st.markdown(toc_html, unsafe_allow_html=True)
-
-    # === EXPAND / COLLAPSE ALL BUTTONS (REINSTATED) ===
-    st.markdown("<div style='text-align:center;margin:1.5rem 0;'>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1, 3])
+# ==========================================
+# 7. DASHBOARD
+# ==========================================
+if page == "Dashboard":
+    st.markdown("## Dashboard")
+    view_company_id = user[5]
+    if user[4] == "Admin":
+        all_comps = run_query("SELECT id, name FROM companies")
+        comp_opts = all_comps['name'].tolist()
+        try: def_idx = comp_opts.index(user_company_name)
+        except: def_idx = 0
+        view_name = st.selectbox("Viewing Dashboard For:", comp_opts, index=def_idx)
+        view_company_id = all_comps[all_comps['name'] == view_name].iloc[0]['id']
+    
+    risks = run_query("SELECT * FROM risks WHERE company_id=?", (view_company_id,))
+    
+    col1, col2 = st.columns(2)
     with col1:
-        if st.button("Expand All", key="expand_all"):
-            for sec in sections:
-                key = stable_key(selected_playbook, sec["title"], sec["level"])
-                save_expander_state(selected_playbook, key, True)
-                st.session_state[get_expander_state_key(selected_playbook, key)] = True
-                for sub in sec.get("subs", []):
-                    sub_key = stable_key(selected_playbook, sub["title"], sub["level"])
-                    save_expander_state(selected_playbook, sub_key, True)
-                    st.session_state[get_expander_state_key(selected_playbook, sub_key)] = True
-            st.success("All sections expanded!")
-            st.rerun()
+        high = len(risks[risks['risk_score'] >= 7])
+        st.markdown(f'<div class="metric-card"><h2>{high}</h2><p>High Risks</p></div>', unsafe_allow_html=True)
     with col2:
-        if st.button("Collapse All", key="collapse_all"):
-            for sec in sections:
-                key = stable_key(selected_playbook, sec["title"], sec["level"])
-                save_expander_state(selected_playbook, key, False)
-                st.session_state[get_expander_state_key(selected_playbook, key)] = False
-                for sub in sec.get("subs", []):
-                    sub_key = stable_key(selected_playbook, sub["title"], sub["level"])
-                    save_expander_state(selected_playbook, sub_key, False)
-                    st.session_state[get_expander_state_key(selected_playbook, sub_key)] = False
-            st.success("All sections collapsed!")
-            st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # === CONTENT ===
-    st.markdown('<div class="content-wrap">', unsafe_allow_html=True)
-    for sec in sections:
-        render_section(sec, selected_playbook, completed_map, comments_map, autosave, expander_states)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # === FINAL PROGRESS CALCULATION ===
-    done = sum(1 for k, v in completed_map.items() if v and "::row::" in k)
-    total = task_counter["total"]
-    pct = int((done / max(total, 1)) * 100) if total > 0 else 0
-    badges = calculate_badges(pct)
-
-    # === SHOW PROGRESS BAR ===
-    if total > 0:
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.info(f"**Progress:** {pct}% – {', '.join(badges)}")
-        with col2:
-            if st.button("Gamify!"):
-                st.session_state.gamify = not st.session_state.gamify
-                if st.session_state.gamify:
-                    st.session_state.gamify_count = st.session_state.get("gamify_count", 0) + 1
-                    if st.session_state.gamify_count % 2 == 1:
-                        st.balloons()
-                    else:
-                        st.snow()
-
-        st.markdown(f"<div class='progress-wrap'><div class='progress-fill' style='width:{pct}%'></div></div>", unsafe_allow_html=True)
+        total = len(risks)
+        st.markdown(f'<div class="metric-card"><h2>{total}</h2><p>Total Risks</p></div>', unsafe_allow_html=True)
+    
+    st.write("---")
+    if risks.empty:
+        st.info("No risks logged.")
     else:
-        st.warning("No actionable tasks found in this playbook.")
+        for _, r in risks.iterrows():
+            color = get_risk_color(r['risk_score'])
+            bg = "#ffe6e6" if color == "red" else "#fff4e6" if color == "orange" else "#e6f7e6"
+            btn_label = f"**{r['title']}** | Status: {r['status']} (Score: {r['risk_score']})"
+            if st.button(btn_label, key=f"r_{r['id']}"):
+                st.session_state.selected_risk = r['id']
+                st.session_state.page = "Risk Detail"
+                st.rerun()
+            st.markdown(f'<div class="clickable-risk" style="background:{bg};"><small>{r["description"]}</small></div>', unsafe_allow_html=True)
 
-    # === SAVE ON CHANGE ===
-    if autosave:
-        save_progress(selected_playbook, completed_map, comments_map, expander_states)
+# ==========================================
+# 8. LOG RISK (with AI and NIST Guidance)
+# ==========================================
+elif page == "Log a new Risk":
+    st.markdown("## Log a New Risk")
+    st.info("This process aligns your risk with the NIST Cybersecurity Framework (CSF) for consistent reporting.")
+    
+    comps = run_query("SELECT id, name FROM companies")
+    try: def_idx = comps['name'].tolist().index(user_company_name)
+    except: def_idx = 0
+    c_name = st.selectbox("Company", comps['name'].tolist(), index=def_idx)
+    c_id = comps[comps['name'] == c_name].iloc[0]['id']
+    
+    # FIX: Ensure approver list is functional
+    approvers = run_query("SELECT email, username FROM users WHERE role='Approver' AND company_id=?", (c_id,))
+    if approvers.empty:
+        st.error(f"No Approver found for {c_name}. Please check the Admin Panel.")
+        st.stop()
+    
+    approver_emails = approvers['email'].tolist()
+    approver_usernames = approvers['username'].tolist()
+    
+    selected_approver_name = st.selectbox("Assign to Approver", approver_usernames)
+    approver_email = approvers[approvers['username'] == selected_approver_name].iloc[0]['email']
 
-    # === ACTION BUTTONS ===
-    st.markdown("### Actions")
-    col_a, col_b, col_c = st.columns(3)
-    with col_a:
-        if st.button("Save Progress"):
-            save_progress(selected_playbook, completed_map, comments_map, expander_states)
-            st.success("Progress & expander states saved!")
-        st.download_button("Download CSV", 
-                           export_to_csv(completed_map, comments_map, selected_playbook),
-                           f"{os.path.splitext(selected_playbook)[0]}_progress.csv",
-                           "text/csv")
-    with col_b:
-        if st.button("Refresh"):
+    
+    with st.form("new_risk"):
+        col_a, col_b = st.columns([3,1])
+        with col_a: title = st.text_input("Title")
+        with col_b: 
+            st.write("")
+            st.write("")
+            run_ai = st.form_submit_button("✨ Auto-Classify (NIST/Score)")
+            
+        desc = st.text_area("Description")
+        
+        # AI Defaults
+        d_cat, d_lik, d_imp = "IDENTIFY", "Low", "Low"
+        if run_ai and (title or desc):
+            d_cat, d_lik, d_imp = ai_classify_risk(title + " " + desc)
+            st.success(f"AI Suggestion: Category={d_cat}, Likelihood={d_lik}, Impact={d_imp}")
+            
+        cat = st.selectbox("NIST CSF Category", list(NIST_FUNCTIONS.keys()), index=list(NIST_FUNCTIONS.keys()).index(d_cat))
+        
+        # NIST Guidance Hint
+        st.markdown(f'<div class="nist-hint">**{cat}:** {NIST_FUNCTIONS.get(cat, "No specific guidance.")}</div>', unsafe_allow_html=True)
+        
+        col_lik, col_imp = st.columns(2)
+        with col_lik:
+            lik = st.selectbox("Likelihood", ["Low", "Medium", "High"], index=["Low", "Medium", "High"].index(d_lik))
+        with col_imp:
+            imp = st.selectbox("Impact", ["Low", "Medium", "High"], index=["Low", "Medium", "High"].index(d_imp))
+        
+        if st.form_submit_button("Submit Risk"):
+            if not title or not desc:
+                st.error("Required fields missing.")
+            else:
+                score = calculate_risk_score(lik, imp)
+                run_query("""INSERT INTO risks (company_id, title, description, category, likelihood, impact, status, submitted_by, submitted_date, risk_score, approver_email, workflow_step) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (c_id, title, desc, cat, lik, imp, "Pending Approval", user[2], datetime.now().strftime("%Y-%m-%d"), score, approver_email, "awaiting"), is_write=True)
+                st.success("Risk Logged! Sent to Approver.")
+                log_action(user[2], "RISK SUBMITTED", f"{title} (Approver: {approver_email})")
+                send_email(approver_email, "New Risk Awaiting Approval", f"Title: {title}")
+                st.session_state.page = "Dashboard"
+                st.rerun()
+
+# ==========================================
+# 9. RISK DETAIL (with Remediation & Jira)
+# ==========================================
+elif page == "Risk Detail" and "selected_risk" in st.session_state:
+    rid = st.session_state.selected_risk
+    risk = run_query("SELECT * FROM risks WHERE id=?", (rid,)).iloc[0]
+    
+    st.markdown(f"## Risk: {risk['title']}")
+    st.markdown(f"NIST Category: **{risk['category']}** | Current Score: **{risk['risk_score']}** | Status: **{risk['status']}**")
+    
+    # Jira Sync Button
+    if not risk['jira_ticket_id']:
+        if st.button("🔗 Sync to Jira"):
+            time.sleep(1)
+            ticket = f"JIRA-{random.randint(1000,9999)}"
+            run_query("UPDATE risks SET jira_ticket_id=? WHERE id=?", (ticket, rid), is_write=True)
+            log_action(user[2], "JIRA SYNC", f"Risk {rid} linked to {ticket}")
+            st.success(f"Created {ticket}")
             st.rerun()
-        if OPENPYXL_AVAILABLE:
-            st.download_button("Download Excel", 
-                               export_to_excel(completed_map, comments_map, selected_playbook, bulk_export),
-                               f"{os.path.splitext(selected_playbook)[0]}_progress.xlsx",
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    else:
+        st.info(f"Jira Ticket: {risk['jira_ticket_id']}")
 
-    show_feedback()
+    t1, t2, t3 = st.tabs(["Details", "Remediation", "Evidence"])
+    
+    with t1:
+        with st.form("edit"):
+            c1, c2 = st.columns(2)
+            new_title = st.text_input("Title", risk['title'])
+            new_desc = st.text_area("Description", risk['description'])
+            with c1:
+                new_cat = st.selectbox("NIST CSF Category", list(NIST_FUNCTIONS.keys()), index=list(NIST_FUNCTIONS.keys()).index(risk['category']))
+                new_lik = st.selectbox("Likelihood", ["Low", "Medium", "High"], index=["Low", "Medium", "High"].index(risk['likelihood']))
+            with c2:
+                new_imp = st.selectbox("Impact", ["Low", "Medium", "High"], index=["Low", "Medium", "High"].index(risk['impact']))
+                # Only Approvers or Admins can change status past 'Pending Approval'
+                if user[4] in ["Admin", "Approver"]:
+                    new_status = st.selectbox("Status", ["Pending Approval", "Approved", "Rejected", "Mitigated"], index=["Pending Approval", "Approved", "Rejected", "Mitigated"].index(risk['status']))
+                else:
+                    st.text(f"Status: {risk['status']} (Contact Approver to change)")
+                    new_status = risk['status']
+                    
+            new_notes = st.text_area("Approver Notes", risk['approver_notes'] or "")
+            
+            if st.form_submit_button("Save Changes"):
+                new_score = calculate_risk_score(new_lik, new_imp)
+                # Check if approval action was taken
+                approved_by = risk['approved_by']
+                approved_date = risk['approved_date']
+                if risk['status'] == 'Pending Approval' and new_status in ['Approved', 'Rejected'] and user[4] in ["Admin", "Approver"]:
+                    approved_by = user[1]
+                    approved_date = datetime.now().strftime("%Y-%m-%d")
 
-    # === BOTTOM TOOLBAR ===
-    st.markdown(f"""
-    <div class="bottom-toolbar">
-        <div>© Joval Wines – Better Never Stops</div>
-        <div>Progress: {pct}%</div>
-    </div>
-    """, unsafe_allow_html=True)
+                run_query("""UPDATE risks SET title=?, description=?, category=?, likelihood=?, impact=?, status=?, risk_score=?, approver_notes=?, approved_by=?, approved_date=? WHERE id=?""", (new_title, new_desc, new_cat, new_lik, new_imp, new_status, new_score, new_notes, approved_by, approved_date, rid), is_write=True)
+                log_action(user[2], "RISK UPDATED", f"Risk {rid}. Status: {new_status}")
+                st.success("Updated")
+                st.rerun()
 
-if __name__ == "__main__":
-    main()
+    with t2:
+        with st.form("rem"):
+            plan = st.text_area("Action Plan (NIST RESPOND/RECOVER)", risk['remediation_plan'] or "")
+            own = st.text_input("Remediation Owner", risk['remediation_owner'] or "")
+            date = st.text_input("Target Date (YYYY-MM-DD)", risk['remediation_date'] or "")
+            if st.form_submit_button("Update Plan"):
+                run_query("UPDATE risks SET remediation_plan=?, remediation_owner=?, remediation_date=? WHERE id=?", (plan, own, date, rid), is_write=True)
+                log_action(user[2], "REMEDIATION PLAN", f"Risk {rid}. Owner: {own}")
+                st.success("Updated")
+                st.rerun()
+
+    with t3:
+        st.markdown("### Upload New Evidence")
+        uploaded = st.file_uploader("Upload supporting document/screenshot")
+        if uploaded:
+            run_query("INSERT INTO evidence (risk_id, company_id, file_name, upload_date, uploaded_by, file_data) VALUES (?, ?, ?, ?, ?, ?)", (rid, risk['company_id'], uploaded.name, datetime.now().strftime("%Y-%m-%d"), user[1], uploaded.getvalue()), is_write=True)
+            log_action(user[2], "EVIDENCE UPLOADED", f"Risk {rid}. File: {uploaded.name}")
+            st.success("File uploaded.")
+            st.rerun()
+            
+        st.markdown("### Existing Evidence for this Risk")
+        files = run_query("SELECT id, file_name, uploaded_by, upload_date, file_data FROM evidence WHERE risk_id=?", (rid,))
+        if files.empty:
+            st.info("No evidence files uploaded for this specific risk.")
+        else:
+            for _, f in files.iterrows():
+                st.download_button(f"Download {f['file_name']} (by {f['uploaded_by']})", f['file_data'], f['file_name'], key=f"d_{f['id']}")
+
+    if st.button("Back to Dashboard"):
+        del st.session_state.selected_risk
+        st.session_state.page = "Dashboard"
+        st.rerun()
+
+# ==========================================
+# 10. VENDOR MANAGEMENT (NIST & Scoring)
+# ==========================================
+elif page == "Vendor Management":
+    st.markdown("## Vendor Management (NIST CSF Aligned)")
+    st.info("Vendor risks are managed through questionnaires mapped to NIST CSF functions (Identify, Protect, Detect, Respond).")
+    t1, t2, t3 = st.tabs(["Vendors", "Question Template", "Risk Scoring"])
+    
+    with t1:
+        with st.expander("Add New Vendor"):
+            with st.form("add_v"):
+                n = st.text_input("Vendor Name")
+                e = st.text_input("Contact Email")
+                if st.form_submit_button("Add Vendor"):
+                    run_query("INSERT INTO vendors (name, contact_email, risk_level, company_id, vendor_score) VALUES (?, ?, ?, ?, ?)", (n, e, "Pending", user[5], 0), is_write=True)
+                    log_action(user[2], "VENDOR ADDED", n)
+                    st.success(f"Vendor {n} added.")
+                    st.rerun()
+        vendors = run_query("SELECT id, name, contact_email, risk_level, vendor_score FROM vendors WHERE company_id=?", (user[5],))
+        st.dataframe(vendors.rename(columns={'vendor_score': 'Score (Max 45)'}))
+        
+    with t2:
+        st.markdown("### Vendor Assessment Questions (NIST Aligned)")
+        st.markdown("Total Max Score: 45")
+        qs = run_query("SELECT id, question, weight FROM vendor_questions")
+        edited = st.data_editor(qs, num_rows="dynamic", column_config={"question": st.column_config.TextColumn("Question (Ensure NIST CSF alignment)")})
+        
+        if st.button("Save Question Template"):
+            # Clear existing questions before saving new set
+            run_query("DELETE FROM vendor_questions WHERE company_id=?", (1,), is_write=True)
+            for _, r in edited.iterrows():
+                if r['question'] and r['weight']:
+                    run_query("INSERT INTO vendor_questions (question, weight, company_id) VALUES (?, ?, ?)", (r['question'], r['weight'], 1), is_write=True)
+            log_action(user[2], "VENDOR TEMPLATE EDITED")
+            st.success("Vendor assessment template saved.")
+            st.rerun()
+
+    with t3:
+        v_list = run_query("SELECT id, name FROM vendors WHERE company_id=?", (user[5],))
+        if v_list.empty:
+            st.warning("No vendors to score. Please add a vendor first.")
+        else:
+            sel_v = st.selectbox("Select Vendor to Score", v_list['name'].tolist())
+            vid = v_list[v_list['name'] == sel_v].iloc[0]['id']
+            qs = run_query("SELECT * FROM vendor_questions")
+            
+            with st.form("score"):
+                score = 0
+                max_s = 0
+                st.markdown(f"#### Security Questionnaire for {sel_v}")
+                for _, q in qs.iterrows():
+                    max_s += q['weight']
+                    if st.radio(f"**{q['question']}**", ["Yes", "No"], key=q['id'], horizontal=True) == "Yes":
+                        score += q['weight']
+                
+                st.markdown(f"**Max Possible Score: {max_s}**")
+                
+                if st.form_submit_button("Calculate Vendor Risk Score"):
+                    # Compliance Logic: High Risk if score is below 50%
+                    lvl = "High" if score < (max_s * 0.5) else "Low"
+                    run_query("UPDATE vendors SET vendor_score=?, risk_level=?, last_assessment_date=? WHERE id=?", (score, lvl, datetime.now().strftime("%Y-%m-%d"), vid), is_write=True)
+                    log_action(user[2], "VENDOR SCORED", f"Vendor {sel_v}: {score}/{max_s}. Level: {lvl}")
+                    st.success(f"Vendor Risk Assessed. Score: {score}/{max_s}. Risk Level: {lvl}")
+
+# ==========================================
+# 11. REPORTS (Including NIST Board Report)
+# ==========================================
+elif page == "Reports":
+    st.markdown("## Risk Reporting")
+    target_id = user[5]
+    if user[4] == "Admin":
+        comps = run_query("SELECT id, name FROM companies")
+        c_view = st.selectbox("Report For:", comps['name'].tolist())
+        target_id = comps[comps['name'] == c_view].iloc[0]['id']
+
+    t1, t2, t3, t4, t5 = st.tabs(["Heatmap", "NIST Alignment", "Status", "High Risks", "Custom Report Builder"])
+    
+    with t1:
+        st.markdown("### Risk Heatmap Distribution")
+        df = run_query("SELECT risk_score FROM risks WHERE company_id=?", (target_id,))
+        high = len(df[df['risk_score']>=7])
+        med = len(df[(df['risk_score']>=4) & (df['risk_score']<7)])
+        low = len(df[df['risk_score']<4])
+        fig = go.Figure(data=[go.Bar(x=['High (7-9)', 'Medium (4-6)', 'Low (1-3)'], y=[high, med, low], marker_color=['red', 'orange', 'green'])])
+        fig.update_layout(title_text='Risk Count by Score Severity')
+        st.plotly_chart(fig)
+        
+    with t2:
+        st.markdown("### NIST CSF Board Level Alignment Report")
+        cat = run_query("SELECT category, count(*) as count FROM risks WHERE company_id=? GROUP BY category", (target_id,))
+        if cat.empty:
+            st.warning("No risks to report on for NIST alignment.")
+        else:
+            st.dataframe(cat.rename(columns={'category': 'NIST CSF Function'}))
+            
+            # Pie Chart Visualization
+            fig = px.pie(cat, values='count', names='category', title='Risk Distribution by NIST CSF Function')
+            st.plotly_chart(fig)
+            
+            # PDF Download for Board
+            pdf_data = generate_pdf_report(f"NIST CSF Alignment Report for {user_company_name}", cat)
+            st.download_button("Download NIST Report PDF", pdf_data, "nist_alignment_report.pdf")
+
+        
+    with t3:
+        st.markdown("### Risk Status Breakdown")
+        stat = run_query("SELECT status, count(*) as count FROM risks WHERE company_id=? GROUP BY status", (target_id,))
+        if not stat.empty: 
+            fig = px.pie(stat, values='count', names='status', title='Current Risk Status')
+            st.plotly_chart(fig)
+
+    with t4:
+        st.markdown("### High Priority Risks (Score >= 7)")
+        high_risks = run_query("SELECT title, risk_score, status, remediation_owner, remediation_date FROM risks WHERE company_id=? AND risk_score >= 7 ORDER BY risk_score DESC", (target_id,))
+        if high_risks.empty:
+            st.info("No High Risks currently open.")
+        else:
+            st.dataframe(high_risks)
+            pdf = generate_pdf_report("High Risks Priority List", high_risks)
+            st.download_button("Download High Risks PDF", pdf, "high_risks_priority.pdf")
+
+    with t5:
+        st.markdown("### Custom Report Builder")
+        cols = st.multiselect("Select Columns for Custom Report", ["title", "category", "likelihood", "impact", "status", "submitted_by", "risk_score", "remediation_owner", "remediation_date", "jira_ticket_id"], default=["title", "risk_score", "status"])
+        if st.button("Generate Custom Report"):
+            if cols:
+                col_str = ", ".join(cols)
+                res = run_query(f"SELECT {col_str} FROM risks WHERE company_id=?", (target_id,))
+                st.dataframe(res)
+                pdf = generate_pdf_report("Custom Risk Report", res)
+                st.download_button("Download Custom PDF", pdf, "custom_report.pdf")
+            else:
+                st.warning("Please select at least one column.")
+
+# ==========================================
+# 12. ADMIN & AUDIT (Full Features)
+# ==========================================
+elif page == "Admin Panel" and user[4] == "Admin":
+    st.markdown("## Admin Panel")
+    comps = run_query("SELECT * FROM companies")
+    
+    # --- Add User ---
+    with st.expander("Add New User"):
+        with st.form("new_u"):
+            u = st.text_input("Username")
+            e = st.text_input("Email")
+            p = st.text_input("Password", type="password")
+            r = st.selectbox("Role", ["Admin", "Approver", "User"])
+            c = st.selectbox("Company", comps['name'].tolist())
+            if st.form_submit_button("Create User"):
+                cid = comps[comps['name'] == c].iloc[0]['id']
+                h = hashlib.sha256(p.encode()).hexdigest()
+                run_query("INSERT INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)", (u, e, h, r, cid), is_write=True)
+                log_action(user[2], "USER CREATED", u)
+                st.success("User Created")
+    
+    st.markdown("### Manage Existing Users")
+    users = run_query("SELECT id, username, email, role, company_id FROM users")
+    
+    # --- Edit/Delete/Reset Logic ---
+    for _, row in users.iterrows():
+        c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+        c1.text(f"{row['username']} ({row['role']})")
+        
+        if c2.button("Edit", key=f"ed_{row['id']}"):
+            st.session_state.edit_user = row.to_dict()
+            st.rerun()
+
+        if c3.button("Reset PW", key=f"rpw_{row['id']}"):
+            if row['id'] == user[0]:
+                st.error("Cannot reset your own password here.")
+            else:
+                run_query("UPDATE users SET password=? WHERE id=?", (DEFAULT_PASSWORD_HASH, row['id']), is_write=True)
+                log_action(user[2], "PASSWORD RESET", f"User ID {row['id']} password reset to default.")
+                st.success(f"Password for {row['username']} reset to default.")
+                
+        if c4.button("Delete", key=f"del_{row['id']}"):
+            if row['id'] == user[0]:
+                st.error("Cannot delete your own account.")
+            else:
+                run_query("DELETE FROM users WHERE id=?", (row['id'],), is_write=True)
+                log_action(user[2], "USER DELETED", f"Deleted User {row['username']} (ID: {row['id']}).")
+                st.success(f"User {row['username']} deleted.")
+                st.rerun()
+
+
+    if "edit_user" in st.session_state:
+        ed = st.session_state.edit_user
+        st.markdown(f"#### Edit {ed['username']}")
+        with st.form("ed_form"):
+            new_u = st.text_input("Username", ed['username'])
+            new_e = st.text_input("Email", ed['email'])
+            new_r = st.selectbox("Role", ["Admin", "Approver", "User"], index=["Admin", "Approver", "User"].index(ed['role']))
+            if st.form_submit_button("Save Changes"):
+                run_query("UPDATE users SET username=?, email=?, role=? WHERE id=?", (new_u, new_e, new_r, ed['id']), is_write=True)
+                log_action(user[2], "USER EDITED", f"ID {ed['id']} updated. New Role: {new_r}")
+                st.success("User details saved.")
+                del st.session_state.edit_user
+                st.rerun()
+
+elif page == "Audit Trail" and user[4] == "Admin":
+    st.markdown("## Audit Trail")
+    st.info("A comprehensive log of all major user actions for compliance and security review.")
+    st.dataframe(run_query("SELECT * FROM audit_trail ORDER BY id DESC"))
+
+# --- EVIDENCE VAULT FIX ---
+elif page == "Evidence Vault":
+    st.markdown("## Company Evidence Vault")
+    st.info("Central repository for all documents uploaded across all risks for your company.")
+    files = run_query("SELECT id, risk_id, file_name, uploaded_by, upload_date, file_data FROM evidence WHERE company_id=?", (user[5],))
+    
+    if files.empty:
+        st.warning("The Evidence Vault is currently empty for your company.")
+    else:
+        for _, f in files.iterrows():
+            # Shows the risk ID the evidence is attached to
+            st.download_button(f"Download {f['file_name']} (Risk ID: {f['risk_id']})", f['file_data'], f['file_name'], key=f"ev_{f['id']}")
+
+# --- APPROVER WORKFLOW ---
+elif page == "My Approvals" and user[4] == "Approver":
+    st.markdown("## My Assigned Risks Awaiting Approval")
+    
+    # Query to fetch risks assigned to the current approver's email
+    pend = run_query("SELECT id, title, risk_score, submitted_date FROM risks WHERE approver_email=? AND status='Pending Approval'", (user[2],))
+    
+    if pend.empty:
+        st.info("You have no pending risks requiring your approval at this time. Good job!")
+    else:
+        st.warning(f"You have **{len(pend)}** risk(s) awaiting review. Please take action immediately.")
+        for _, r in pend.iterrows():
+            if st.button(f"Review: {r['title']} (Score: {r['risk_score']}, Submitted: {r['submitted_date']})", key=r['id']):
+                st.session_state.selected_risk = r['id']
+                st.session_state.page = "Risk Detail"
+                st.rerun()
+
+st.markdown("---\n© 2025 Joval Wines - NIST Compliant Risk Platform")
