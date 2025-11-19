@@ -75,11 +75,11 @@ def init_db():
     conn = get_connection()
     c = conn.cursor()
     
-    # Core Tables
+    # Core Tables (Using IF NOT EXISTS ensures they are only created once)
     c.execute("""CREATE TABLE IF NOT EXISTS companies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)""")
     c.execute("""CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, email TEXT UNIQUE, password TEXT, role TEXT, company_id INTEGER)""")
     
-    # Risks Table with Enterprise Columns (remediation, jira, NIST categories)
+    # Risks Table with all necessary columns (remediation, jira, NIST categories)
     c.execute("""CREATE TABLE IF NOT EXISTS risks (
         id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER, title TEXT, description TEXT, 
         category TEXT, likelihood TEXT, impact TEXT, status TEXT, submitted_by TEXT, submitted_date TEXT, 
@@ -98,14 +98,27 @@ def init_db():
     # Audit Trail
     c.execute("""CREATE TABLE IF NOT EXISTS audit_trail (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, user_email TEXT, action TEXT, details TEXT)""")
 
-    # Safe Column Migration (Ensure all necessary columns exist)
-    # This prevents errors when running the script after the initial creation
-    cols = [("risks", "remediation_plan", "TEXT"), ("risks", "jira_ticket_id", "TEXT"), 
-            ("vendors", "vendor_score", "INTEGER"), ("risks", "remediation_owner", "TEXT"), 
-            ("risks", "remediation_date", "TEXT"), ("vendor_questions", "weight", "INTEGER")]
-    for t, c_name, d_type in cols:
-        try: c.execute(f"ALTER TABLE {t} ADD COLUMN {c_name} {d_type}")
-        except: pass
+    # --- CRITICAL FIX: Safe Column Migration/Addition ---
+    # This block ensures that even if the DB file exists, missing columns are added.
+    cols_to_check = [
+        ("risks", "remediation_plan", "TEXT"), 
+        ("risks", "remediation_owner", "TEXT"), 
+        ("risks", "remediation_date", "TEXT"),
+        ("risks", "jira_ticket_id", "TEXT"), 
+        ("vendors", "vendor_score", "INTEGER"), 
+        ("vendor_questions", "weight", "INTEGER")
+    ]
+    
+    for table, col_name, col_type in cols_to_check:
+        try:
+            # Check if column exists by attempting to select it
+            c.execute(f"SELECT {col_name} FROM {table} LIMIT 1")
+        except sqlite3.OperationalError:
+            # If the column does not exist, add it
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}")
+            print(f"Applied database migration: Added column {col_name} to table {table}.")
+            
+    # --- End Critical Fix ---
 
     # Seed Data (Admin/Approvers/Users)
     c.execute("SELECT count(*) FROM companies")
@@ -143,11 +156,8 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Run initialization (will only create tables and seed data if DB file doesn't exist or is empty)
-if not os.path.exists(DB_FILE):
-    init_db()
-else:
-    init_db() # Run init_db again to ensure all columns/migrations are applied
+# Run initialization (will create tables and ensure all necessary columns are present)
+init_db()
 
 # ==========================================
 # 3. HELPERS (Including Audit Logging and AI)
@@ -235,8 +245,8 @@ def send_email(to_email, subject, body):
         msg.attach(MIMEText(body, 'plain'))
         
         # --- Simulation Block ---
-        # st.success(f"Email SIMULATION sent to {to_email} with subject: {subject}")
-        # print(f"Email SIMULATION: To={to_email}, Subject={subject}, Body={body}")
+        st.success(f"Email SIMULATION sent to {to_email} with subject: {subject}")
+        print(f"Email SIMULATION: To={to_email}, Subject={subject}, Body={body}")
         # --- End Simulation Block ---
         
         # Uncomment the block below and replace SENDER_PASSWORD with a valid app password 
@@ -472,7 +482,16 @@ elif page == "My Approvals" and user[4] == "Approver":
 # ==========================================
 elif page == "Risk Detail" and "selected_risk" in st.session_state:
     rid = st.session_state.selected_risk
-    risk = run_query("SELECT * FROM risks WHERE id=?", (rid,)).iloc[0]
+    risk_data = run_query("SELECT * FROM risks WHERE id=?", (rid,))
+    if risk_data.empty:
+        st.error("Risk not found or deleted.")
+        if st.button("Back to Dashboard"):
+            del st.session_state.selected_risk
+            st.session_state.page = "Dashboard"
+            st.rerun()
+        st.stop()
+
+    risk = risk_data.iloc[0]
     
     st.markdown(f"## Risk: {risk['title']}")
     
@@ -508,6 +527,8 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
                 
                 # Approval/Status workflow control
                 new_status = risk['status']
+                new_notes = risk['approver_notes'] or "" # Default for non-approvers
+                
                 if user[4] in ["Admin", "Approver"]:
                     st.markdown("---")
                     st.markdown("#### Approval/Status Control")
@@ -515,7 +536,6 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
                     new_notes = st.text_area("Approver Notes", risk['approver_notes'] or "")
                 else:
                     st.info(f"Current Status: {risk['status']} (Contact Approver: {risk['approver_email']})")
-                    new_notes = risk['approver_notes']
                     
             if st.form_submit_button("Save Changes"):
                 new_score = calculate_risk_score(new_lik, new_imp)
@@ -530,8 +550,15 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
                     approved_date = datetime.now().strftime("%Y-%m-%d")
                     st.success(f"Risk officially {new_status} by {approved_by}.")
 
-                run_query("""UPDATE risks SET title=?, description=?, category=?, likelihood=?, impact=?, status=?, risk_score=?, approver_notes=?, approved_by=?, approved_date=? WHERE id=?""", 
-                          (new_title, new_desc, new_cat, new_lik, new_imp, new_status, new_notes, approved_by, approved_date, rid), is_write=True)
+                # Update the database
+                run_query("""
+                    UPDATE risks 
+                    SET title=?, description=?, category=?, likelihood=?, impact=?, status=?, risk_score=?, approver_notes=?, approved_by=?, approved_date=? 
+                    WHERE id=?
+                    """, 
+                    (new_title, new_desc, new_cat, new_lik, new_imp, new_status, new_score, new_notes, approved_by, approved_date, rid), 
+                    is_write=True)
+                
                 log_action(user[2], "RISK UPDATED", f"Risk {rid}. Status: {new_status}")
                 st.success("Risk Details Updated")
                 st.rerun()
@@ -539,6 +566,7 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
     with t2:
         st.markdown("### Remediation and Mitigation Plan (NIST RESPOND & RECOVER)")
         with st.form("rem_plan"):
+            # FIX 7 & 8: Remediation plan fields are present
             plan = st.text_area("Action Plan", risk['remediation_plan'] or "")
             own = st.text_input("Remediation Owner", risk['remediation_owner'] or "")
             date = st.text_input("Target Date (YYYY-MM-DD)", risk['remediation_date'] or "")
@@ -589,6 +617,7 @@ elif page == "Vendor Management":
                     log_action(user[2], "VENDOR ADDED", n)
                     st.success(f"Vendor {n} added.")
                     st.rerun()
+        # FIX 6: Vendor score column is displayed
         vendors = run_query("SELECT id, name, contact_email, risk_level, vendor_score, last_assessment_date FROM vendors WHERE company_id=?", (user[5],))
         st.dataframe(vendors.rename(columns={'vendor_score': 'Score', 'risk_level': 'Level'}), use_container_width=True)
         
@@ -604,6 +633,7 @@ elif page == "Vendor Management":
         
         if st.button("Save Question Template"):
             # Clear existing questions before saving new set for the company (assuming Company ID 1 is the master template)
+            # This logic needs refinement in a multi-tenant app, but works for this single-file implementation
             run_query("DELETE FROM vendor_questions WHERE company_id=?", (1,), is_write=True)
             for _, r in edited.iterrows():
                 # Ensure weight is a positive integer
@@ -666,7 +696,7 @@ elif page == "Evidence Vault":
         # Display data with a column for download button
         for index, row in files.iterrows():
             col1, col2, col3, col4, col5 = st.columns([1, 4, 2, 2, 2])
-            col1.write(f"{row['risk_id']}")
+            col1.write(f"**{row['risk_id']}**")
             col2.write(row['file_name'])
             col3.write(row['uploaded_by'])
             col4.write(row['upload_date'])
@@ -709,6 +739,8 @@ elif page == "Reports":
         # FIX 4: NIST Board Level Alignment Report
         st.markdown("### NIST CSF Board Level Alignment Report")
         st.info("Shows the distribution of logged risks across the five core NIST CSF functions. This highlights where the company's biggest exposures lie from a strategic perspective.")
+        
+        # This query relies on the 'category' column existing in the 'risks' table (a fixed column)
         cat = run_query("SELECT category, count(*) as count FROM risks WHERE company_id=? GROUP BY category", (target_id,))
         
         if cat.empty:
@@ -735,6 +767,7 @@ elif page == "Reports":
 
     with t4:
         st.markdown("### High Priority Risks (Score >= 7)")
+        # This query relies on remediation and jira columns existing (fixed columns)
         high_risks = run_query("SELECT title, risk_score, status, remediation_owner, remediation_date, jira_ticket_id FROM risks WHERE company_id=? AND risk_score >= 7 ORDER BY risk_score DESC", (target_id,))
         if high_risks.empty:
             st.info("No High Risks currently open.")
@@ -885,4 +918,4 @@ elif page == "Audit Trail" and user[4] == "Admin":
     st.info("A comprehensive, uneditable log of all major user actions for compliance and security review.")
     st.dataframe(run_query("SELECT * FROM audit_trail ORDER BY id DESC"), use_container_width=True)
 
-st.markdown("---\n© 2025 Joval Wines - NIST Compliant Risk Platform (v51.0)")
+st.markdown("---\n© 2025 Joval Wines - NIST Compliant Risk Platform (v51.1)")
